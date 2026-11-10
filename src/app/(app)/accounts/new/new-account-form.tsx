@@ -12,10 +12,12 @@ export function NewAccountForm({
   customers,
   owners,
   defaultNetDays,
+  next,
 }: {
   customers: { id: string; name: string }[];
   owners: { id: string; legal_name: string }[];
   defaultNetDays: number;
+  next: string;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -41,6 +43,7 @@ export function NewAccountForm({
   return (
     <form onSubmit={onSubmit} className="mt-8 space-y-5">
       {error && <Notice kind="error">{error}</Notice>}
+      <input type="hidden" name="next" value={next} />
 
       <Card title="Client" description="The property manager. One client can have many properties.">
         <div className="grid gap-4 sm:grid-cols-2">

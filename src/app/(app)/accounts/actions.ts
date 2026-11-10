@@ -143,7 +143,11 @@ export async function createAccount(fd: FormData): Promise<FormResult> {
   if (error) return { error: `The account was not saved: ${error.message}` };
 
   revalidatePath("/accounts");
-  redirect(`/accounts/${data}?saved=${encodeURIComponent("Account created.")}`);
+  revalidatePath("/schedule");
+  if (text(fd, "next") === "schedule") {
+    redirect(`/schedule/${data}?saved=${encodeURIComponent("Property created. Upload its signed contract to build the schedule.")}`);
+  }
+  redirect(`/accounts/${data}?saved=${encodeURIComponent("Property created.")}`);
 }
 
 // ---------------------------------------------------------------------------

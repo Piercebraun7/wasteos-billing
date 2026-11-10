@@ -12,10 +12,11 @@ it("renders an invoice PDF", async () => {
     invoice: { number: "1219", invoiceDate: "2026-11-30", dueDate: "2026-12-30", serviceMonth: "November 2026", totalCents: 247500, isDraft: false },
     billTo: { clientName: "Stellar Residential", propertyName: "Village at Liberty Farms", addressLines: ["5801 S. 51st Ave", "Laveen, AZ 85339"] },
     charges: [
-      { description: "Valet service, 100 units at $12.50, Nov 1 to Nov 15 (15 of 30 days)", amountCents: 62500 },
-      { description: "Valet service, 240 units at $12.50, Nov 16 to Nov 30 (15 of 30 days)", amountCents: 150000 },
-      { description: "Bulk pickup, Nov 14", amountCents: 35000 },
+      { title: "Valet service", detail: "November 2026 \u00b7 Nov 1 to Nov 15 (15 of 30 days)", units: "100", rateCents: 1250, amountCents: 62500 },
+      { title: "Valet service", detail: "November 2026 \u00b7 Nov 16 to Nov 30 (15 of 30 days)", units: "240", rateCents: 1250, amountCents: 150000 },
+      { title: "Bulk pickup", detail: "November 2026 \u00b7 Nov 14", units: "1", rateCents: 35000, amountCents: 35000 },
     ],
+    nextMonth: { label: "December 2026", amountCents: 300000 },
     outstanding: {
       priorBalanceCents: 191838,
       unpaidInvoices: [{ number: "1190", date: "2026-10-31", remainingCents: 186250 }],

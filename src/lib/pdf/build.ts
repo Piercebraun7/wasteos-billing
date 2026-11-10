@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { monthLabel } from "../billing/dates";
+import type { BillingModel, Phase } from "../billing/invoice-math";
+import { nextMonth, scheduleCell } from "../billing/schedule";
 import { lateFeeSentence, type InvoiceDocument } from "./invoice-data";
 
 type Entry = { entry_date: string; entry_type: string; amount_cents: number; source_table: string; source_id: string; description: string | null };
@@ -11,7 +13,7 @@ export async function buildInvoiceDocument(supabase: SupabaseClient, invoiceId: 
     .select(
       `*, lines:invoice_lines!invoice_lines_invoice_id_fkey(*),
        account:billing_accounts(id, property:properties(*), customer:customers(name, is_ach_payer),
-         contracts(status, net_days, created_at, late_fee_template:late_fee_templates(*)))`,
+         contracts(status, net_days, created_at, billing_model, start_date, end_date, phases:contract_phases(*), late_fee_template:late_fee_templates(*)))`,
     )
     .eq("id", invoiceId)
     .maybeSingle();
@@ -66,13 +68,21 @@ export async function buildInvoiceDocument(supabase: SupabaseClient, invoiceId: 
     .filter((u) => u.remainingCents > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  type ContractRow = { status: string; net_days: number; created_at: string; late_fee_template: Parameters<typeof lateFeeSentence>[0] };
+  type ContractRow = {
+    status: string; net_days: number; created_at: string; billing_model: BillingModel;
+    start_date: string | null; end_date: string | null; phases: Phase[];
+    late_fee_template: Parameters<typeof lateFeeSentence>[0];
+  };
   const contracts = (invoice.account.contracts ?? []) as ContractRow[];
   const contract = contracts.find((c) => c.status === "active") ?? [...contracts].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
   const property = invoice.account.property;
   const cityLine = [property.city, [property.state, property.postal_code].filter(Boolean).join(" ")].filter(Boolean).join(", ");
   const company = settings.data;
   const total = Number(invoice.total_cents);
+  const serviceLabel = monthLabel(invoice.service_month);
+  const following = contract
+    ? scheduleCell({ model: contract.billing_model, phases: contract.phases ?? [], month: nextMonth(invoice.service_month), contractStart: contract.start_date, contractEnd: contract.end_date })
+    : null;
 
   return {
     company: {
@@ -94,13 +104,32 @@ export async function buildInvoiceDocument(supabase: SupabaseClient, invoiceId: 
       propertyName: property.name,
       addressLines: [property.address_line1, property.address_line2, cityLine].filter(Boolean),
     },
-    charges: [...(invoice.lines as { description: string; amount_cents: number; sort_order: number }[])]
-      .sort((a, b) => a.sort_order - b.sort_order)
-      .map((l) => ({ description: l.description, amountCents: Number(l.amount_cents) })),
+    charges: [...(invoice.lines as LineRow[])].sort((a, b) => a.sort_order - b.sort_order).map((l) => chargeRow(l, serviceLabel)),
+    nextMonth: following && following.amountCents !== null ? { label: monthLabel(following.month), amountCents: following.amountCents } : null,
     outstanding: { priorBalanceCents: priorTotal - lateFeeTotal, unpaidInvoices, lateFees, paymentsAndCredits },
     totalAmountDueCents: priorTotal + total,
     showAch: Boolean(invoice.account.customer.is_ach_payer),
     terms: { netDays: contract?.net_days ?? 30, lateFeeSentence: lateFeeSentence(contract?.late_fee_template ?? null) },
+  };
+}
+
+type LineRow = {
+  description: string; amount_cents: number; sort_order: number; line_type: string;
+  quantity: number; unit_price_cents: number;
+};
+
+/** Splits a stored line into the columns the invoice shows. */
+function chargeRow(l: LineRow, serviceLabel: string): InvoiceDocument["charges"][number] {
+  const [title, ...rest] = l.description.split(", ");
+  // The unit count and rate get their own columns, so drop them from the text.
+  const extra = rest.filter((part) => !/^\d+ units at \$[\d,.]+$/.test(part) && !/^\$[\d,.]+ per month$/.test(part));
+  const perUnit = l.line_type === "valet" || l.line_type === "per_event";
+  return {
+    title,
+    detail: [serviceLabel, ...extra].join(" \u00b7 "),
+    units: perUnit ? String(Number(l.quantity)) : "",
+    rateCents: l.line_type === "tax" ? null : Number(l.unit_price_cents),
+    amountCents: Number(l.amount_cents),
   };
 }
 

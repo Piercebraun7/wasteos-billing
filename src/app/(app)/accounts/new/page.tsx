@@ -3,8 +3,9 @@ import { PageHeader } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { NewAccountForm } from "./new-account-form";
 
-export default async function NewAccountPage() {
+export default async function NewAccountPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
   const { supabase } = await requireAdmin();
+  const next = (await searchParams).next === "schedule" ? "schedule" : "";
   const [customers, owners, settings] = await Promise.all([
     supabase.from("customers").select("id, name").order("name"),
     supabase.from("owner_entities").select("id, legal_name").order("legal_name"),
@@ -27,6 +28,7 @@ export default async function NewAccountPage() {
         customers={(customers.data ?? []) as { id: string; name: string }[]}
         owners={(owners.data ?? []) as { id: string; legal_name: string }[]}
         defaultNetDays={settings.data?.default_net_days ?? 30}
+        next={next}
       />
     </>
   );

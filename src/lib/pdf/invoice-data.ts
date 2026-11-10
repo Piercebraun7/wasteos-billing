@@ -12,7 +12,15 @@ export type InvoiceDocument = {
     isDraft: boolean;
   };
   billTo: { clientName: string; propertyName: string; addressLines: string[] };
-  charges: { description: string; amountCents: number }[];
+  charges: {
+    title: string; // "Valet service"
+    detail: string; // "November 2026" or "November 2026 · Nov 1 to Nov 15 (15 of 30 days)"
+    units: string; // "240", or "" when the charge is not per unit
+    rateCents: number | null;
+    amountCents: number;
+  }[];
+  /** What the contract schedules for the following month, before any one-off work. */
+  nextMonth: { label: string; amountCents: number } | null;
   outstanding: {
     priorBalanceCents: number;
     unpaidInvoices: { number: string; date: ISODate; remainingCents: number; disputed?: boolean }[];

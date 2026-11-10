@@ -154,3 +154,38 @@ describe("drafts", () => {
     expect(t).toEqual({ percent_bps: 300, frequency: "recurring", recurrence_interval_days: 30, compounding: true, grace_days: 0, confirmed: true });
   });
 });
+
+describe("replacing a schedule", () => {
+  const contractId = async () => (await one<{ id: string }>("select id from public.contracts where account_id = $1", [account])).id;
+  const phases = JSON.stringify([
+    { label: "Free months", effective_start: "2026-11-01", billable_units: 240, rate_per_unit_cents: 0 },
+    { label: "Full rate", effective_start: "2027-02-01", billable_units: 240, rate_per_unit_cents: 1250 },
+  ]);
+
+  it("swaps every phase in one step", async () => {
+    await as(db, admin, async () => {
+      const id = await contractId();
+      await db.query("insert into public.contract_phases (contract_id, label, effective_start, flat_amount_cents) values ($1, 'Old', '2026-01-01', 100)", [id]);
+      const n = (await one<{ n: number }>("select public.replace_contract_phases($1, $2) as n", [id, phases])).n;
+      expect(n).toBe(2);
+      const rows = (await db.query<{ label: string }>("select label from public.contract_phases where contract_id = $1 order by effective_start", [id])).rows;
+      expect(rows.map((r) => r.label)).toEqual(["Free months", "Full rate"]);
+    });
+  });
+
+  it("refuses when a phase has been invoiced, and changes nothing", async () => {
+    await expect(
+      as(db, admin, async () => {
+        const id = await contractId();
+        const phase = (await one<{ id: string }>("insert into public.contract_phases (contract_id, label, effective_start, flat_amount_cents) values ($1, 'Billed', '2026-01-01', 100) returning id", [id])).id;
+        const inv = (await one<{ id: string }>("select public.create_draft_invoice($1) as id", [draft("2026-11-01")])).id;
+        await db.query("update public.invoice_lines set contract_phase_id = $1 where invoice_id = $2", [phase, inv]);
+        await db.query("select public.replace_contract_phases($1, $2)", [id, phases]);
+      }),
+    ).rejects.toThrow(/has been invoiced/);
+  });
+
+  it("is refused for anyone who is not a billing admin", async () => {
+    await expect(as(db, stranger, () => db.query("select public.replace_contract_phases(gen_random_uuid(), $1)", [phases]))).rejects.toThrow(/Only a billing admin/);
+  });
+});

@@ -15,7 +15,8 @@
     "@supabase/supabase-js": "^2.119.0",
     "next": "16.4.6",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "unpdf": "^1.9.1"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.16",

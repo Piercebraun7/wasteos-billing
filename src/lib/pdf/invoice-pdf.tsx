@@ -17,23 +17,27 @@ const LINE = "#DDE3E9";
 const PAD = 44;
 
 const s = StyleSheet.create({
-  page: { fontFamily: "RobotoFlex", fontSize: 9.5, color: MIDNIGHT, lineHeight: 1.45, paddingBottom: 62 },
-  band: { backgroundColor: MIDNIGHT, paddingHorizontal: PAD, paddingTop: 28, paddingBottom: 25, flexDirection: "row", justifyContent: "space-between", alignItems: "center", overflow: "hidden" },
+  page: { fontFamily: "RobotoFlex", fontSize: 9.5, color: MIDNIGHT, lineHeight: 1.45, paddingBottom: 52 },
+  band: { backgroundColor: MIDNIGHT, paddingHorizontal: PAD, paddingTop: 22, paddingBottom: 20, flexDirection: "row", justifyContent: "space-between", alignItems: "center", overflow: "hidden" },
   star: { position: "absolute", width: 230, height: 230, right: -70, top: -95, opacity: 0.16 },
   kicker: { fontFamily: "Rethink", fontWeight: 700, fontSize: 7.5, letterSpacing: 2.2, color: TOMATO, textTransform: "uppercase" },
-  bandNumber: { fontFamily: "Rethink", fontWeight: 800, fontSize: 30, color: "#FFFFFF", lineHeight: 1.1, marginTop: 3 },
+  bandNumber: { fontFamily: "Rethink", fontWeight: 800, fontSize: 26, color: "#FFFFFF", lineHeight: 1.1, marginTop: 3 },
   metaStrip: { backgroundColor: ICE, paddingHorizontal: PAD, paddingVertical: 11, flexDirection: "row" },
   label: { fontFamily: "Rethink", fontWeight: 700, fontSize: 6.8, letterSpacing: 1.5, color: MUTE, textTransform: "uppercase", marginBottom: 3 },
   strong: { fontFamily: "Rethink", fontWeight: 700 },
   body: { paddingHorizontal: PAD },
   h2: { fontFamily: "Rethink", fontWeight: 800, fontSize: 12.5, lineHeight: 1.2 },
   tableHead: { flexDirection: "row", justifyContent: "space-between", borderBottomWidth: 1.2, borderBottomColor: MIDNIGHT, paddingBottom: 5, marginTop: 9 },
-  row: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 6.5, borderBottomWidth: 0.8, borderBottomColor: LINE },
+  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 5, borderBottomWidth: 0.8, borderBottomColor: LINE },
   amount: { width: 120, textAlign: "right" },
+  colDesc: { flex: 1, paddingRight: 14 },
+  colUnits: { width: 62, textAlign: "right" },
+  colRate: { width: 84, textAlign: "right" },
+  colTotal: { width: 96, textAlign: "right" },
   mute: { color: MUTE },
-  total: { marginTop: 14, backgroundColor: MIDNIGHT, borderRadius: 10, flexDirection: "row", overflow: "hidden" },
+  total: { marginTop: 12, backgroundColor: MIDNIGHT, borderRadius: 10, flexDirection: "row", overflow: "hidden" },
   totalBar: { width: 7, backgroundColor: TOMATO },
-  footer: { position: "absolute", left: PAD, right: PAD, bottom: 26, borderTopWidth: 0.8, borderTopColor: LINE, paddingTop: 9, fontSize: 7.4, color: MUTE, lineHeight: 1.5 },
+  footer: { position: "absolute", left: PAD, right: PAD, bottom: 22, borderTopWidth: 0.8, borderTopColor: LINE, paddingTop: 7, fontSize: 7.4, color: MUTE, lineHeight: 1.5 },
   draft: { position: "absolute", top: 330, left: 70, fontSize: 110, color: "#EEF1F4", fontFamily: "Rethink", fontWeight: 800, transform: "rotate(-28deg)" },
 });
 
@@ -48,7 +52,7 @@ function Meta({ label, value, grow = 1 }: { label: string; value: string; grow?:
 
 function SummaryRow({ label, value, sub = false }: { label: string; value: string; sub?: boolean }) {
   return (
-    <View style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: sub ? 1.5 : 3.5, paddingLeft: sub ? 10 : 0 }}>
+    <View style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: sub ? 1 : 2.5, paddingLeft: sub ? 10 : 0 }}>
       <Text style={sub ? s.mute : undefined}>{label}</Text>
       <Text style={[{ width: 130, textAlign: "right" }, sub ? s.mute : s.strong]}>{value}</Text>
     </View>
@@ -73,7 +77,7 @@ export function InvoicePdf({ doc }: { doc: InvoiceDocument }) {
           {/* eslint-disable-next-line jsx-a11y/alt-text */}
           <Image src={STAR_TOMATO_PNG} style={s.star} />
           {/* eslint-disable-next-line jsx-a11y/alt-text */}
-          <Image src={LOGO_WHITE_PNG} style={{ width: 150, height: 150 / LOGO_ASPECT }} />
+          <Image src={LOGO_WHITE_PNG} style={{ width: 132, height: 132 / LOGO_ASPECT }} />
           <View style={{ alignItems: "flex-end" }}>
             <Text style={s.kicker}>{invoice.isDraft ? "Draft invoice" : "Invoice"}</Text>
             <Text style={s.bandNumber}>{invoice.isDraft ? "Not yet issued" : `No. ${invoice.number}`}</Text>
@@ -87,7 +91,7 @@ export function InvoicePdf({ doc }: { doc: InvoiceDocument }) {
         </View>
 
         <View style={s.body}>
-          <View style={{ flexDirection: "row", marginTop: 18 }}>
+          <View style={{ flexDirection: "row", marginTop: 15 }}>
             <View style={{ flex: 1, paddingRight: 16 }}>
               <Text style={s.label}>Bill to</Text>
               <Text style={[s.strong, { fontSize: 11.5 }]}>{billTo.clientName}</Text>
@@ -107,16 +111,23 @@ export function InvoicePdf({ doc }: { doc: InvoiceDocument }) {
           </View>
 
           {/* 2. Current charges */}
-          <View style={{ marginTop: 20 }}>
+          <View style={{ marginTop: 16 }}>
             <Text style={s.h2}>Current Charges</Text>
             <View style={s.tableHead}>
-              <Text style={[s.label, { marginBottom: 0 }]}>Description</Text>
-              <Text style={[s.label, { marginBottom: 0 }]}>Amount</Text>
+              <Text style={[s.label, s.colDesc, { marginBottom: 0 }]}>Service</Text>
+              <Text style={[s.label, s.colUnits, { marginBottom: 0 }]}>Units</Text>
+              <Text style={[s.label, s.colRate, { marginBottom: 0 }]}>Rate</Text>
+              <Text style={[s.label, s.colTotal, { marginBottom: 0 }]}>Total</Text>
             </View>
             {charges.map((c, i) => (
               <View key={i} style={s.row} wrap={false}>
-                <Text style={{ flex: 1, paddingRight: 14 }}>{c.description}</Text>
-                <Text style={[s.amount, s.strong]}>{formatCents(c.amountCents)}</Text>
+                <View style={s.colDesc}>
+                  <Text style={s.strong}>{c.title}</Text>
+                  <Text style={[s.mute, { fontSize: 8.5 }]}>{c.detail}</Text>
+                </View>
+                <Text style={s.colUnits}>{c.units}</Text>
+                <Text style={s.colRate}>{c.rateCents === null ? "" : formatCents(c.rateCents)}</Text>
+                <Text style={[s.colTotal, s.strong]}>{formatCents(c.amountCents)}</Text>
               </View>
             ))}
             <View style={{ flexDirection: "row", justifyContent: "flex-end", paddingTop: 9 }}>
@@ -126,7 +137,7 @@ export function InvoicePdf({ doc }: { doc: InvoiceDocument }) {
           </View>
 
           {/* 3. Outstanding balance */}
-          <View style={{ marginTop: 14, borderRadius: 10, borderWidth: 0.8, borderColor: LINE, paddingVertical: 12, paddingHorizontal: 16 }} wrap={false}>
+          <View style={{ marginTop: 12, borderRadius: 10, borderWidth: 0.8, borderColor: LINE, paddingVertical: 11, paddingHorizontal: 16 }} wrap={false}>
             <Text style={[s.h2, { marginBottom: 7 }]}>Outstanding Balance</Text>
             {!hasOutstanding && <Text style={s.mute}>No prior balance on this account. Thank you.</Text>}
             {hasOutstanding && (
@@ -156,7 +167,7 @@ export function InvoicePdf({ doc }: { doc: InvoiceDocument }) {
           {/* 4. Total amount due */}
           <View style={s.total} wrap={false}>
             <View style={s.totalBar} />
-            <View style={{ flex: 1, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 14, paddingHorizontal: 18 }}>
+            <View style={{ flex: 1, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 13, paddingHorizontal: 18 }}>
               <View>
                 <Text style={{ fontFamily: "Rethink", fontWeight: 800, fontSize: 14, color: "#FFFFFF", lineHeight: 1.2 }}>Total Amount Due</Text>
                 <Text style={{ color: "#AEB6C2", fontSize: 8, marginTop: 3 }}>
@@ -167,18 +178,25 @@ export function InvoicePdf({ doc }: { doc: InvoiceDocument }) {
             </View>
           </View>
 
-          {/* 5. Remittance */}
-          <View style={{ marginTop: 16, flexDirection: "row" }} wrap={false}>
-            <View style={{ flex: 1, paddingRight: 16 }}>
+          {/* 5. Remittance, and what is scheduled next */}
+          <View style={{ marginTop: 11, flexDirection: "row" }} wrap={false}>
+            <View style={{ flex: 1, paddingRight: 14 }}>
               <Text style={s.label}>Pay by check</Text>
               <Text>Mail checks to:</Text>
               <Text style={s.strong}>{company.name}</Text>
               <Text style={s.strong}>{company.remittanceAddress}</Text>
             </View>
             {doc.showAch && company.achInstructions && (
-              <View style={{ flex: 1 }}>
+              <View style={{ flex: 1, paddingRight: 14 }}>
                 <Text style={s.label}>Pay by ACH</Text>
                 <Text>{company.achInstructions}</Text>
+              </View>
+            )}
+            {doc.nextMonth && (
+              <View style={{ width: 168, backgroundColor: ICE, borderRadius: 8, paddingVertical: 9, paddingHorizontal: 12 }}>
+                <Text style={s.label}>Next month, scheduled</Text>
+                <Text style={{ fontFamily: "Rethink", fontWeight: 800, fontSize: 14, lineHeight: 1.2 }}>{formatCents(doc.nextMonth.amountCents)}</Text>
+                <Text style={[s.mute, { fontSize: 7.6, marginTop: 2 }]}>{doc.nextMonth.label} service, before any one-off work</Text>
               </View>
             )}
           </View>
