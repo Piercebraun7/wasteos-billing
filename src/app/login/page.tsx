@@ -27,7 +27,7 @@ export default async function LoginPage() {
       <div className="relative flex flex-1 items-center justify-center px-4 pb-16">
         <div className="rise w-full max-w-[400px]">
           <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-tomato">Accounts receivable</p>
-          <h1 className="mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">Sign in.</h1>
+          <h1 className="mt-3 text-4xl font-extrabold tracking-tight sm:text-5xl">Sign in.</h1>
           <p className="mt-3 text-[15px] leading-relaxed text-white/55">Billing, statements, and balances for Kaizen Waste.</p>
           <div className="mt-8 rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-2xl shadow-black/40 backdrop-blur-xl">
             <LoginForm />

@@ -30,7 +30,7 @@ export function PageHeader({
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div>
         <Eyebrow>{eyebrow}</Eyebrow>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-ink sm:text-4xl">{title}</h1>
+        <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">{title}</h1>
         {description && <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-mute">{description}</p>}
       </div>
       {action}
@@ -43,15 +43,20 @@ export function Field({
   hint,
   children,
   className = "",
+  needed = false,
 }: {
   label: string;
   hint?: string;
   children: ReactNode;
   className?: string;
+  needed?: boolean;
 }) {
   return (
     <label className={`block ${className}`}>
-      <span className="mb-1.5 block text-[13px] font-medium text-slate-600">{label}</span>
+      <span className="mb-1.5 block text-[13px] font-medium text-slate-600">
+        {label}
+        {needed && <Needed />}
+      </span>
       {children}
       {hint && <span className="mt-1.5 block text-xs leading-relaxed text-mute">{hint}</span>}
     </label>
@@ -62,14 +67,19 @@ export function Card({
   title,
   description,
   children,
+  needed = false,
 }: {
   title: string;
   description?: string;
   children: ReactNode;
+  needed?: boolean;
 }) {
   return (
     <section className="rounded-3xl border border-line bg-white p-5 shadow-[0_1px_2px_rgb(16_24_40/0.04)] sm:p-7">
-      <h2 className="text-lg font-semibold tracking-tight text-ink">{title}</h2>
+      <h2 className="text-lg font-semibold tracking-tight text-ink">
+        {title}
+        {needed && <Needed />}
+      </h2>
       {description && <p className="mt-1 max-w-2xl text-sm leading-relaxed text-mute">{description}</p>}
       <div className="mt-5">{children}</div>
     </section>
@@ -88,7 +98,7 @@ export function Stat({ label, value, detail, dark = false }: { label: string; va
       {dark && <div className="grid-lines pointer-events-none absolute inset-0" aria-hidden />}
       <div className="relative">
         <Eyebrow className={dark ? "!text-white/60" : ""}>{label}</Eyebrow>
-        <p className="mt-3 text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl">{value}</p>
+        <p className="font-display mt-3 text-3xl font-bold tracking-tight tabular-nums sm:text-4xl">{value}</p>
         {detail && <p className={`mt-2 text-sm ${dark ? "text-white/60" : "text-mute"}`}>{detail}</p>}
       </div>
     </div>
@@ -135,14 +145,27 @@ export function Monogram({ name }: { name: string }) {
 
 export function Wordmark({ light = false }: { light?: boolean }) {
   return (
-    <span className="flex items-center gap-2.5">
-      <span className="flex size-7 items-center justify-center rounded-lg bg-tomato" aria-hidden>
-        <span className="size-2.5 rounded-[3px] bg-white" />
-      </span>
-      <span className={`text-[15px] font-semibold tracking-tight ${light ? "text-white" : "text-ink"}`}>Kaizen</span>
-      <span className={`font-mono text-[10px] font-medium uppercase tracking-[0.18em] ${light ? "text-white/50" : "text-mute"}`}>
+    <span className="flex items-end gap-2.5">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={light ? "/brand/kaizen-waste-logo-white.svg" : "/brand/kaizen-waste-logo.svg"}
+        alt="Kaizen Waste"
+        width={105}
+        height={40}
+        className="h-10 w-auto"
+      />
+      <span className={`pb-[3px] font-mono text-[10px] font-medium uppercase tracking-[0.18em] ${light ? "text-white/50" : "text-mute"}`}>
         Billing
       </span>
+    </span>
+  );
+}
+
+/** Red asterisk marking something that is still needed. */
+export function Needed() {
+  return (
+    <span className="ml-1 font-semibold text-red-600" aria-label="needed">
+      *
     </span>
   );
 }

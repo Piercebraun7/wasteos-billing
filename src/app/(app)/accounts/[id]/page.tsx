@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Card, dangerButton, Eyebrow, Field, inputClass, Notice, primaryButton, secondaryButton } from "@/components/ui";
+import { Card, dangerButton, Eyebrow, Field, Needed, inputClass, Notice, primaryButton, secondaryButton } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
 import { requireAdmin } from "@/lib/auth";
 import { monthLabel } from "@/lib/billing/dates";
@@ -129,12 +129,16 @@ export default async function AccountPage({
     ["Service start", contract?.start_date ? formatDate(contract.start_date) : "Not set"],
   ];
 
-  // Why this contract cannot be billed yet, in plain words.
-  const blockers: string[] = [];
-  if (contract && contract.status !== "active") {
-    if (!contract.late_fee_template?.confirmed_at) blockers.push("a confirmed late fee template");
-    if (!contract.quoted_basis) blockers.push("confirmation of whether the quoted amount is pre-tax or tax-inclusive");
-  }
+  // What is still missing before this property can be invoiced. Each gets a red asterisk.
+  const need = {
+    lateFee: !contract?.late_fee_template?.confirmed_at,
+    goLive: !account.go_live_service_month,
+    active: contract?.status !== "active",
+    basis: !contract?.quoted_basis,
+    contact: contacts.length === 0,
+    phase: Boolean(contract && usesPhases(contract.billing_model) && phases.filter((p) => !p.superseded_at).length === 0),
+  };
+  const anythingNeeded = Object.values(need).some(Boolean);
 
   return (
     <div className="space-y-5">
@@ -152,7 +156,7 @@ export default async function AccountPage({
           <div className="relative flex flex-wrap items-end justify-between gap-8">
             <div className="min-w-0">
               <Eyebrow className="!text-white/50">Account</Eyebrow>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">{property.name}</h1>
+              <h1 className="mt-2 text-3xl font-extrabold tracking-tight sm:text-4xl">{property.name}</h1>
               <p className="mt-2 text-[15px] text-white/60">
                 Billed to {customer.name}
                 {address && ` · ${address}`}
@@ -160,7 +164,7 @@ export default async function AccountPage({
             </div>
             <div className="sm:text-right">
               <Eyebrow className="!text-white/50">Account balance</Eyebrow>
-              <p className="mt-2 text-5xl font-semibold tracking-tight tabular-nums sm:text-6xl">{formatCents(balance)}</p>
+              <p className="font-display mt-2 text-5xl font-extrabold tracking-tight tabular-nums sm:text-6xl">{formatCents(balance)}</p>
             </div>
           </div>
           <dl className="relative mt-8 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-white/10 pt-6 sm:grid-cols-4">
@@ -176,11 +180,10 @@ export default async function AccountPage({
 
       {saved && <Notice kind="ok">{saved}</Notice>}
       {errorMessage && <Notice kind="error">{errorMessage}</Notice>}
-      {contract && contract.status !== "active" && (
-        <Notice kind="info">
-          Not active for billing yet. No invoice will be drafted for this account until it has{" "}
-          {blockers.length ? blockers.join(" and ") : "been switched on"}.
-        </Notice>
+      {anythingNeeded && (
+        <p className="text-sm text-mute">
+          <Needed /> Still needed before this property can be invoiced.
+        </p>
       )}
 
       {contract && (
@@ -191,7 +194,7 @@ export default async function AccountPage({
           <form action={updateBillingSetup} className="grid gap-4 sm:grid-cols-3">
             {hidden}
             <input type="hidden" name="contract_id" value={contract.id} />
-            <Field label="Late fee terms">
+            <Field label="Late fee terms" needed={need.lateFee}>
               <select name="late_fee_template_id" defaultValue={contract.late_fee_template_id ?? ""} className={inputClass}>
                 <option value="">Not set</option>
                 {(templates.data ?? []).map((t) => (
@@ -199,12 +202,13 @@ export default async function AccountPage({
                 ))}
               </select>
             </Field>
-            <Field label="Go-live service month">
+            <Field label="Go-live service month" needed={need.goLive}>
               <input type="month" name="go_live_month" defaultValue={account.go_live_service_month?.slice(0, 7) ?? ""} className={inputClass} />
             </Field>
             <label className="flex items-center gap-2 self-end pb-3 text-sm text-slate-600">
               <input name="active" type="checkbox" defaultChecked={contract.status === "active"} className="size-4" />
               Active for billing
+              {need.active && <Needed />}
             </label>
             <div className="sm:col-span-3">
               <SubmitButton className={primaryButton}>Save billing setup</SubmitButton>
@@ -277,7 +281,7 @@ export default async function AccountPage({
           </Field>
           <label className="flex items-center gap-2 text-sm text-slate-600 sm:col-span-2">
             <input name="is_ach_payer" type="checkbox" defaultChecked={customer.is_ach_payer} className="size-4" />
-            This customer pays by ACH (bank transfer instructions will print on their invoices)
+            This client pays by ACH (bank transfer instructions will print on its invoices)
           </label>
           <div className="sm:col-span-2">
             <SubmitButton className={primaryButton}>Save client details</SubmitButton>
@@ -285,7 +289,7 @@ export default async function AccountPage({
         </form>
       </Card>
 
-      <Card title="Points of contact" description="The people at this property who receive its invoices by email.">
+      <Card title="Points of contact" description="The people at this property who receive its invoices by email." needed={need.contact}>
         <div className="space-y-3">
           {contacts.length === 0 && <p className="text-sm text-mute">No contacts yet. Invoices cannot be sent until there is at least one.</p>}
           {contacts.map((c) => (
@@ -331,7 +335,7 @@ export default async function AccountPage({
               <Field label="Net days" hint="Days from invoice date to due date.">
                 <input name="net_days" inputMode="numeric" defaultValue={contract.net_days} className={inputClass} />
               </Field>
-              <Field label="Quoted amount is" hint="From the signed contract.">
+              <Field label="Quoted amount is" hint="From the signed contract." needed={need.basis}>
                 <select name="quoted_basis" defaultValue={contract.quoted_basis ?? ""} className={inputClass}>
                   <option value="">Not confirmed yet</option>
                   <option value="pre_tax">Pre-tax</option>
@@ -366,6 +370,7 @@ export default async function AccountPage({
           {usesPhases(contract.billing_model) && (
             <Card
               title="Phases"
+              needed={need.phase}
               description="Each phase takes effect on its start date and stays in effect until the next one starts. Once a phase has been invoiced it is locked: add a new phase with a later start date instead."
             >
               <div className="space-y-4">

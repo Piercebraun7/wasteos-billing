@@ -44,7 +44,7 @@ export function NewAccountForm({
 
       <Card title="Client" description="The property manager. One client can have many properties.">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Client">
+          <Field label="Client" needed>
             <select name="customer_id" value={customerId} onChange={(e) => setCustomerId(e.target.value)} className={inputClass}>
               <option value="">New client</option>
               {customers.map((c) => (
@@ -53,7 +53,7 @@ export function NewAccountForm({
             </select>
           </Field>
           {!customerId && (
-            <Field label="New client name">
+            <Field label="New client name" needed>
               <input name="customer_name" className={inputClass} />
             </Field>
           )}
@@ -76,7 +76,7 @@ export function NewAccountForm({
 
       <Card title="Property" description="The property is billed on its own invoice, under the client above.">
         <div className="grid gap-4 sm:grid-cols-6">
-          <Field label="Property name" className="sm:col-span-4">
+          <Field label="Property name" className="sm:col-span-4" needed>
             <input name="property_name" required className={inputClass} />
           </Field>
           <Field label="Unit count" className="sm:col-span-2">
@@ -120,7 +120,7 @@ export function NewAccountForm({
 
       <Card title="Contract">
         <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="Billing model">
+          <Field label="Billing model" needed>
             <select name="billing_model" value={model} onChange={(e) => setModel(e.target.value)} className={inputClass}>
               {Object.entries(BILLING_MODELS).map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>

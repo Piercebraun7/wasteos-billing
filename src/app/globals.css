@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
 @theme inline {
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-roboto-flex);
+  --font-display: var(--font-rethink);
   --font-mono: var(--font-geist-mono);
   /* Kaizen brand: Midnight Blue, Tomato, Ice Blue. */
   --color-ink: #20242b;
@@ -22,7 +23,12 @@ html {
 body {
   background: var(--color-canvas);
   color: var(--color-ink);
-  font-feature-settings: "ss01", "cv11";
+}
+
+h1,
+h2,
+.font-display {
+  font-family: var(--font-display), var(--font-sans), sans-serif;
 }
 
 ::selection {

@@ -20,7 +20,7 @@ export default async function NewAccountPage() {
         <PageHeader
           eyebrow="Receivables"
           title="New Property"
-          description="Only the client, the property name, and the billing model are required. Everything can be edited later."
+          description="Fields marked with a red asterisk are required. Everything can be edited later."
         />
       </div>
       <NewAccountForm

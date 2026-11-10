@@ -1,39 +1,56 @@
-import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
+import { Document, Font, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import { formatDate } from "../format";
 import { formatCents } from "../money";
+import { FONT_RETHINK_700, FONT_RETHINK_800, FONT_ROBOTO_FLEX_400, LOGO_ASPECT, LOGO_WHITE_PNG, STAR_TOMATO_PNG } from "./brand-assets";
 import type { InvoiceDocument } from "./invoice-data";
 
-const INK = "#20242B";
+// Kaizen brand: Rethink Sans for headlines, Roboto Flex for body.
+Font.register({ family: "Rethink", fonts: [{ src: FONT_RETHINK_700, fontWeight: 700 }, { src: FONT_RETHINK_800, fontWeight: 800 }] });
+Font.register({ family: "RobotoFlex", src: FONT_ROBOTO_FLEX_400 });
+Font.registerHyphenationCallback((word) => [word]);
+
+const MIDNIGHT = "#20242B";
 const TOMATO = "#FF4B37";
 const ICE = "#E7F0F6";
-const MUTE = "#6B7280";
-const LINE = "#E3E5E9";
+const MUTE = "#68707D";
+const LINE = "#DDE3E9";
+const PAD = 44;
 
 const s = StyleSheet.create({
-  page: { paddingTop: 44, paddingBottom: 64, paddingHorizontal: 48, fontFamily: "Helvetica", fontSize: 9.5, color: INK, lineHeight: 1.4 },
-  row: { flexDirection: "row" },
-  between: { flexDirection: "row", justifyContent: "space-between" },
-  label: { fontSize: 7, letterSpacing: 1.2, color: MUTE, textTransform: "uppercase", marginBottom: 3 },
-  brandMark: { width: 16, height: 16, borderRadius: 4, backgroundColor: TOMATO, marginRight: 7, alignItems: "center", justifyContent: "center" },
-  brandDot: { width: 6, height: 6, borderRadius: 1.5, backgroundColor: "#FFFFFF" },
-  brand: { fontFamily: "Helvetica-Bold", fontSize: 15, letterSpacing: 0.2 },
-  title: { fontFamily: "Helvetica-Bold", fontSize: 22, letterSpacing: -0.3, lineHeight: 1.15 },
-  bold: { fontFamily: "Helvetica-Bold" },
+  page: { fontFamily: "RobotoFlex", fontSize: 9.5, color: MIDNIGHT, lineHeight: 1.45, paddingBottom: 62 },
+  band: { backgroundColor: MIDNIGHT, paddingHorizontal: PAD, paddingTop: 28, paddingBottom: 25, flexDirection: "row", justifyContent: "space-between", alignItems: "center", overflow: "hidden" },
+  star: { position: "absolute", width: 230, height: 230, right: -70, top: -95, opacity: 0.16 },
+  kicker: { fontFamily: "Rethink", fontWeight: 700, fontSize: 7.5, letterSpacing: 2.2, color: TOMATO, textTransform: "uppercase" },
+  bandNumber: { fontFamily: "Rethink", fontWeight: 800, fontSize: 30, color: "#FFFFFF", lineHeight: 1.1, marginTop: 3 },
+  metaStrip: { backgroundColor: ICE, paddingHorizontal: PAD, paddingVertical: 11, flexDirection: "row" },
+  label: { fontFamily: "Rethink", fontWeight: 700, fontSize: 6.8, letterSpacing: 1.5, color: MUTE, textTransform: "uppercase", marginBottom: 3 },
+  strong: { fontFamily: "Rethink", fontWeight: 700 },
+  body: { paddingHorizontal: PAD },
+  h2: { fontFamily: "Rethink", fontWeight: 800, fontSize: 12.5, lineHeight: 1.2 },
+  tableHead: { flexDirection: "row", justifyContent: "space-between", borderBottomWidth: 1.2, borderBottomColor: MIDNIGHT, paddingBottom: 5, marginTop: 9 },
+  row: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 6.5, borderBottomWidth: 0.8, borderBottomColor: LINE },
+  amount: { width: 120, textAlign: "right" },
   mute: { color: MUTE },
-  sectionTitle: { fontFamily: "Helvetica-Bold", fontSize: 11, marginBottom: 6 },
-  rule: { borderBottomWidth: 1, borderBottomColor: LINE },
-  line: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: LINE },
-  amount: { width: 130, textAlign: "right" },
-  totalBox: { marginTop: 18, backgroundColor: INK, borderRadius: 8, paddingVertical: 16, paddingHorizontal: 18, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  footer: { position: "absolute", left: 48, right: 48, bottom: 28, borderTopWidth: 1, borderTopColor: LINE, paddingTop: 8, fontSize: 7.5, color: MUTE },
-  draft: { position: "absolute", top: 300, left: 90, fontSize: 96, color: "#F1F2F4", fontFamily: "Helvetica-Bold", transform: "rotate(-28deg)" },
+  total: { marginTop: 14, backgroundColor: MIDNIGHT, borderRadius: 10, flexDirection: "row", overflow: "hidden" },
+  totalBar: { width: 7, backgroundColor: TOMATO },
+  footer: { position: "absolute", left: PAD, right: PAD, bottom: 26, borderTopWidth: 0.8, borderTopColor: LINE, paddingTop: 9, fontSize: 7.4, color: MUTE, lineHeight: 1.5 },
+  draft: { position: "absolute", top: 330, left: 70, fontSize: 110, color: "#EEF1F4", fontFamily: "Rethink", fontWeight: 800, transform: "rotate(-28deg)" },
 });
 
-function Meta({ label, value }: { label: string; value: string }) {
+function Meta({ label, value, grow = 1 }: { label: string; value: string; grow?: number }) {
   return (
-    <View style={{ marginLeft: 22 }}>
+    <View style={{ flexGrow: grow, flexBasis: 0 }}>
       <Text style={s.label}>{label}</Text>
-      <Text style={s.bold}>{value}</Text>
+      <Text style={[s.strong, { fontSize: 10.5 }]}>{value}</Text>
+    </View>
+  );
+}
+
+function SummaryRow({ label, value, sub = false }: { label: string; value: string; sub?: boolean }) {
+  return (
+    <View style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: sub ? 1.5 : 3.5, paddingLeft: sub ? 10 : 0 }}>
+      <Text style={sub ? s.mute : undefined}>{label}</Text>
+      <Text style={[{ width: 130, textAlign: "right" }, sub ? s.mute : s.strong]}>{value}</Text>
     </View>
   );
 }
@@ -52,114 +69,119 @@ export function InvoicePdf({ doc }: { doc: InvoiceDocument }) {
         {invoice.isDraft && <Text style={s.draft} fixed>DRAFT</Text>}
 
         {/* 1. Header */}
-        <View style={s.between}>
-          <View>
-            <View style={[s.row, { alignItems: "center" }]}>
-              <View style={s.brandMark}><View style={s.brandDot} /></View>
-              <Text style={s.brand}>Kaizen Waste</Text>
-            </View>
-            <Text style={[s.mute, { marginTop: 6 }]}>{company.name}</Text>
-            <Text style={s.mute}>{company.remittanceAddress}</Text>
-          </View>
+        <View style={s.band}>
+          {/* eslint-disable-next-line jsx-a11y/alt-text */}
+          <Image src={STAR_TOMATO_PNG} style={s.star} />
+          {/* eslint-disable-next-line jsx-a11y/alt-text */}
+          <Image src={LOGO_WHITE_PNG} style={{ width: 150, height: 150 / LOGO_ASPECT }} />
           <View style={{ alignItems: "flex-end" }}>
-            <Text style={s.title}>Invoice</Text>
-            <Text style={[s.mute, { marginTop: 2 }]}>{invoice.isDraft ? "Draft, not yet issued" : `No. ${invoice.number}`}</Text>
+            <Text style={s.kicker}>{invoice.isDraft ? "Draft invoice" : "Invoice"}</Text>
+            <Text style={s.bandNumber}>{invoice.isDraft ? "Not yet issued" : `No. ${invoice.number}`}</Text>
           </View>
         </View>
-
-        <View style={[s.between, { marginTop: 26, paddingBottom: 16 }, s.rule]}>
-          <View style={{ maxWidth: 250 }}>
-            <Text style={s.label}>Bill to</Text>
-            <Text style={s.bold}>{billTo.clientName}</Text>
-            <Text style={[s.label, { marginTop: 10 }]}>Property</Text>
-            <Text style={s.bold}>{billTo.propertyName}</Text>
-            {billTo.addressLines.map((l) => (
-              <Text key={l} style={s.mute}>{l}</Text>
-            ))}
-          </View>
-          <View style={s.row}>
-            <Meta label="Service month" value={invoice.serviceMonth} />
-            <Meta label="Invoice date" value={formatDate(invoice.invoiceDate)} />
-            <Meta label="Due date" value={formatDate(invoice.dueDate)} />
-          </View>
+        <View style={s.metaStrip}>
+          <Meta label="Service month" value={invoice.serviceMonth} />
+          <Meta label="Invoice date" value={formatDate(invoice.invoiceDate)} />
+          <Meta label="Due date" value={formatDate(invoice.dueDate)} />
+          <Meta label="Terms" value={`Net ${doc.terms.netDays}`} grow={0.6} />
         </View>
 
-        {/* 2. Current charges */}
-        <View style={{ marginTop: 20 }}>
-          <Text style={s.sectionTitle}>Current Charges</Text>
-          {charges.map((c, i) => (
-            <View key={i} style={s.line} wrap={false}>
-              <Text style={{ flex: 1, paddingRight: 12 }}>{c.description}</Text>
-              <Text style={s.amount}>{formatCents(c.amountCents)}</Text>
+        <View style={s.body}>
+          <View style={{ flexDirection: "row", marginTop: 18 }}>
+            <View style={{ flex: 1, paddingRight: 16 }}>
+              <Text style={s.label}>Bill to</Text>
+              <Text style={[s.strong, { fontSize: 11.5 }]}>{billTo.clientName}</Text>
             </View>
-          ))}
-          <View style={[s.between, { paddingVertical: 7 }]}>
-            <Text style={s.bold}>This invoice</Text>
-            <Text style={[s.amount, s.bold]}>{formatCents(invoice.totalCents)}</Text>
+            <View style={{ flex: 1, paddingRight: 16 }}>
+              <Text style={s.label}>Property</Text>
+              <Text style={[s.strong, { fontSize: 11.5 }]}>{billTo.propertyName}</Text>
+              {billTo.addressLines.map((l) => (
+                <Text key={l} style={s.mute}>{l}</Text>
+              ))}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.label}>From</Text>
+              <Text style={[s.strong, { fontSize: 11.5 }]}>{company.name}</Text>
+              <Text style={s.mute}>{company.remittanceAddress}</Text>
+            </View>
           </View>
-        </View>
 
-        {/* 3. Outstanding balance */}
-        <View style={{ marginTop: 16, backgroundColor: ICE, borderRadius: 8, padding: 14 }} wrap={false}>
-          <Text style={s.sectionTitle}>Outstanding Balance</Text>
-          {!hasOutstanding && <Text style={s.mute}>No prior balance. Thank you.</Text>}
-          {hasOutstanding && (
-            <>
-              <View style={[s.between, { paddingVertical: 3 }]}>
-                <Text style={s.bold}>Prior balance carried forward</Text>
-                <Text style={[s.amount, s.bold]}>{formatCents(outstanding.priorBalanceCents)}</Text>
+          {/* 2. Current charges */}
+          <View style={{ marginTop: 20 }}>
+            <Text style={s.h2}>Current Charges</Text>
+            <View style={s.tableHead}>
+              <Text style={[s.label, { marginBottom: 0 }]}>Description</Text>
+              <Text style={[s.label, { marginBottom: 0 }]}>Amount</Text>
+            </View>
+            {charges.map((c, i) => (
+              <View key={i} style={s.row} wrap={false}>
+                <Text style={{ flex: 1, paddingRight: 14 }}>{c.description}</Text>
+                <Text style={[s.amount, s.strong]}>{formatCents(c.amountCents)}</Text>
               </View>
-              {outstanding.unpaidInvoices.map((u) => (
-                <View key={u.number} style={[s.between, { paddingVertical: 1.5, paddingLeft: 10 }]}>
-                  <Text style={s.mute}>
-                    Invoice {u.number}, {formatDate(u.date)}{u.disputed ? " (in dispute)" : ""}
-                  </Text>
-                  <Text style={[s.amount, s.mute]}>{formatCents(u.remainingCents)} remaining</Text>
-                </View>
-              ))}
-              {outstanding.lateFees.map((f, i) => (
-                <View key={i} style={[s.between, { paddingVertical: 3 }]}>
-                  <Text>{f.description}</Text>
-                  <Text style={s.amount}>{formatCents(f.amountCents)}</Text>
-                </View>
-              ))}
-              {outstanding.paymentsAndCredits.length > 0 && (
-                <Text style={[s.bold, { marginTop: 6 }]}>Payments and credits received since the last invoice (already reflected above)</Text>
-              )}
-              {outstanding.paymentsAndCredits.map((p, i) => (
-                <View key={i} style={[s.between, { paddingVertical: 1.5, paddingLeft: 10 }]}>
-                  <Text style={s.mute}>{formatDate(p.date)}, {p.reference}</Text>
-                  <Text style={[s.amount, s.mute]}>{formatCents(p.amountCents)}</Text>
-                </View>
-              ))}
-            </>
-          )}
-        </View>
-
-        {/* 4. Total amount due */}
-        <View style={s.totalBox} wrap={false}>
-          <View>
-            <Text style={{ color: "#FFFFFF", fontFamily: "Helvetica-Bold", fontSize: 13, lineHeight: 1.2 }}>Total Amount Due</Text>
-            <Text style={{ color: "#B9BEC8", fontSize: 8, marginTop: 4 }}>
-              Full account balance including this invoice. Due {formatDate(invoice.dueDate)}.
-            </Text>
+            ))}
+            <View style={{ flexDirection: "row", justifyContent: "flex-end", paddingTop: 9 }}>
+              <Text style={[s.label, { marginBottom: 0, marginTop: 2.5 }]}>This invoice</Text>
+              <Text style={[s.amount, { fontFamily: "Rethink", fontWeight: 800, fontSize: 12.5 }]}>{formatCents(invoice.totalCents)}</Text>
+            </View>
           </View>
-          <Text style={{ color: "#FFFFFF", fontFamily: "Helvetica-Bold", fontSize: 26, lineHeight: 1.15 }}>{formatCents(doc.totalAmountDueCents)}</Text>
-        </View>
 
-        {/* 5. Remittance */}
-        <View style={{ marginTop: 18 }} wrap={false}>
-          <Text style={s.label}>How to pay</Text>
-          <Text>
-            <Text style={s.bold}>Mail checks to: </Text>
-            {company.name}, {company.remittanceAddress}
-          </Text>
-          {doc.showAch && company.achInstructions && (
-            <Text style={{ marginTop: 4 }}>
-              <Text style={s.bold}>ACH: </Text>
-              {company.achInstructions}
-            </Text>
-          )}
+          {/* 3. Outstanding balance */}
+          <View style={{ marginTop: 14, borderRadius: 10, borderWidth: 0.8, borderColor: LINE, paddingVertical: 12, paddingHorizontal: 16 }} wrap={false}>
+            <Text style={[s.h2, { marginBottom: 7 }]}>Outstanding Balance</Text>
+            {!hasOutstanding && <Text style={s.mute}>No prior balance on this account. Thank you.</Text>}
+            {hasOutstanding && (
+              <>
+                <SummaryRow label="Prior balance carried forward" value={formatCents(outstanding.priorBalanceCents)} />
+                {outstanding.unpaidInvoices.map((u) => (
+                  <SummaryRow
+                    key={u.number}
+                    sub
+                    label={`Invoice ${u.number}, ${formatDate(u.date)}${u.disputed ? " (in dispute)" : ""}`}
+                    value={`${formatCents(u.remainingCents)} remaining`}
+                  />
+                ))}
+                {outstanding.lateFees.map((f, i) => (
+                  <SummaryRow key={i} label={f.description} value={formatCents(f.amountCents)} />
+                ))}
+                {outstanding.paymentsAndCredits.length > 0 && (
+                  <Text style={[s.label, { marginTop: 9 }]}>Payments and credits received since the last invoice (already reflected above)</Text>
+                )}
+                {outstanding.paymentsAndCredits.map((p, i) => (
+                  <SummaryRow key={i} sub label={`${formatDate(p.date)}, ${p.reference}`} value={formatCents(p.amountCents)} />
+                ))}
+              </>
+            )}
+          </View>
+
+          {/* 4. Total amount due */}
+          <View style={s.total} wrap={false}>
+            <View style={s.totalBar} />
+            <View style={{ flex: 1, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 14, paddingHorizontal: 18 }}>
+              <View>
+                <Text style={{ fontFamily: "Rethink", fontWeight: 800, fontSize: 14, color: "#FFFFFF", lineHeight: 1.2 }}>Total Amount Due</Text>
+                <Text style={{ color: "#AEB6C2", fontSize: 8, marginTop: 3 }}>
+                  The full account balance, including this invoice. Due {formatDate(invoice.dueDate)}.
+                </Text>
+              </View>
+              <Text style={{ fontFamily: "Rethink", fontWeight: 800, fontSize: 30, color: "#FFFFFF", lineHeight: 1.1 }}>{formatCents(doc.totalAmountDueCents)}</Text>
+            </View>
+          </View>
+
+          {/* 5. Remittance */}
+          <View style={{ marginTop: 16, flexDirection: "row" }} wrap={false}>
+            <View style={{ flex: 1, paddingRight: 16 }}>
+              <Text style={s.label}>Pay by check</Text>
+              <Text>Mail checks to:</Text>
+              <Text style={s.strong}>{company.name}</Text>
+              <Text style={s.strong}>{company.remittanceAddress}</Text>
+            </View>
+            {doc.showAch && company.achInstructions && (
+              <View style={{ flex: 1 }}>
+                <Text style={s.label}>Pay by ACH</Text>
+                <Text>{company.achInstructions}</Text>
+              </View>
+            )}
+          </View>
         </View>
 
         {/* 6. Footer */}
