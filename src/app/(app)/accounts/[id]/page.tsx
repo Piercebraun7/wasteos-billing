@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Card, dangerButton, Field, inputClass, Notice, primaryButton, secondaryButton } from "@/components/ui";
+import { Card, dangerButton, Eyebrow, Field, inputClass, Notice, primaryButton, secondaryButton } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
 import { requireAdmin } from "@/lib/auth";
 import { BILLING_MODELS, EVENT_TYPES, formatDate, usesPhases } from "@/lib/format";
@@ -16,8 +16,6 @@ import {
   updateContract,
   updateProperty,
 } from "../actions";
-
-export const instant = false;
 
 type Phase = {
   id: string;
@@ -111,6 +109,14 @@ export default async function AccountPage({
   const phases = contract ? [...contract.phases].sort((a, b) => a.effective_start.localeCompare(b.effective_start)) : [];
   const balance = Number(overview.data?.balance_cents ?? 0);
   const hidden = <input type="hidden" name="account_id" value={account.id} />;
+  const address = [property.address_line1, property.city, property.state].filter(Boolean).join(", ");
+  const current = [...phases].reverse().find((p) => !p.superseded_at);
+  const facts: [string, string][] = [
+    ["Units", property.unit_count !== null ? String(property.unit_count) : "Not set"],
+    ["Billing model", contract ? BILLING_MODELS[contract.billing_model] ?? contract.billing_model : "No contract"],
+    ["Latest rate", contract && current ? phaseAmount(contract.billing_model, current).split(" = ").pop()! : "Not set"],
+    ["Service start", contract?.start_date ? formatDate(contract.start_date) : "Not set"],
+  ];
 
   // Why this contract cannot be billed yet, in plain words.
   const blockers: string[] = [];
@@ -120,18 +126,40 @@ export default async function AccountPage({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div>
-        <Link href="/accounts" className="text-sm text-slate-600 hover:text-black">Back to Accounts</Link>
-        <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">{property.name}</h1>
-            <p className="text-slate-600">Billed to {customer.name}</p>
+        <Link href="/accounts" className="inline-flex items-center gap-1.5 text-sm font-medium text-mute transition hover:text-ink">
+          <span aria-hidden>&larr;</span> Accounts
+        </Link>
+        <div className="relative mt-4 overflow-hidden rounded-[28px] bg-ink p-6 text-white sm:p-9">
+          <div className="grid-lines pointer-events-none absolute inset-0" aria-hidden />
+          <div
+            className="pointer-events-none absolute -right-24 -top-24 size-80 rounded-full opacity-20 blur-3xl"
+            style={{ background: "radial-gradient(closest-side, #ff4b37, transparent)" }}
+            aria-hidden
+          />
+          <div className="relative flex flex-wrap items-end justify-between gap-8">
+            <div className="min-w-0">
+              <Eyebrow className="!text-white/50">Account</Eyebrow>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">{property.name}</h1>
+              <p className="mt-2 text-[15px] text-white/60">
+                Billed to {customer.name}
+                {address && ` · ${address}`}
+              </p>
+            </div>
+            <div className="sm:text-right">
+              <Eyebrow className="!text-white/50">Account balance</Eyebrow>
+              <p className="mt-2 text-5xl font-semibold tracking-tight tabular-nums sm:text-6xl">{formatCents(balance)}</p>
+            </div>
           </div>
-          <div className="text-right">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Account balance</p>
-            <p className="text-4xl font-bold tabular-nums text-slate-900">{formatCents(balance)}</p>
-          </div>
+          <dl className="relative mt-8 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-white/10 pt-6 sm:grid-cols-4">
+            {facts.map(([label, value]) => (
+              <div key={label}>
+                <dt className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-white/40">{label}</dt>
+                <dd className="mt-1 truncate text-[15px] font-medium text-white">{value}</dd>
+              </div>
+            ))}
+          </dl>
         </div>
       </div>
 
@@ -186,7 +214,7 @@ export default async function AccountPage({
           <Field label="Legal owner (optional)" hint="Clear the box to remove the owner from this account.">
             <input name="owner_legal_name" defaultValue={owner?.legal_name ?? ""} className={inputClass} />
           </Field>
-          <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2">
+          <label className="flex items-center gap-2 text-sm text-slate-600 sm:col-span-2">
             <input name="is_ach_payer" type="checkbox" defaultChecked={customer.is_ach_payer} className="size-4" />
             This customer pays by ACH (bank transfer instructions will print on their invoices)
           </label>
@@ -198,7 +226,7 @@ export default async function AccountPage({
 
       <Card title="Billing contacts" description="The people who receive invoices by email.">
         <div className="space-y-3">
-          {contacts.length === 0 && <p className="text-sm text-slate-500">No contacts yet. Invoices cannot be sent until there is at least one.</p>}
+          {contacts.length === 0 && <p className="text-sm text-mute">No contacts yet. Invoices cannot be sent until there is at least one.</p>}
           {contacts.map((c) => (
             <div key={c.id} className="flex flex-wrap items-end gap-2">
               <form action={saveContact} className="grid flex-1 gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
@@ -216,7 +244,7 @@ export default async function AccountPage({
               </form>
             </div>
           ))}
-          <form action={saveContact} className="grid gap-2 border-t border-slate-200 pt-3 sm:grid-cols-[1fr_1fr_1fr_auto]">
+          <form action={saveContact} className="grid gap-2 border-t border-line pt-4 sm:grid-cols-[1fr_1fr_1fr_auto]">
             {hidden}
             <input name="name" placeholder="Name" aria-label="New contact name" className={inputClass} />
             <input name="email" type="email" placeholder="Email" aria-label="New contact email" className={inputClass} />
@@ -258,14 +286,14 @@ export default async function AccountPage({
               <Field label="Rebate percent" hint="0 if none.">
                 <input name="rebate_percent" inputMode="decimal" defaultValue={bpsToInput(contract.rebate_bps)} className={inputClass} />
               </Field>
-              <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-3">
+              <label className="flex items-center gap-2 text-sm text-slate-600 sm:col-span-3">
                 <input name="preferred_agreement" type="checkbox" defaultChecked={contract.preferred_agreement} className="size-4" />
                 Under the RPM Living national preferred agreement
               </label>
               <Field label="Link to the signed contract in Notion (optional)" className="sm:col-span-3">
                 <input name="notion_url" type="url" defaultValue={contract.notion_url ?? ""} className={inputClass} />
               </Field>
-              <p className="text-sm text-slate-600 sm:col-span-3">
+              <p className="text-sm text-mute sm:col-span-3">
                 Late fee template: {contract.late_fee_template ? contract.late_fee_template.name : "not set"}. Sales tax: off.
               </p>
               <div className="sm:col-span-3">
@@ -280,7 +308,7 @@ export default async function AccountPage({
               description="Each phase takes effect on its start date and stays in effect until the next one starts. Once a phase has been invoiced it is locked: add a new phase with a later start date instead."
             >
               <div className="space-y-4">
-                {phases.length === 0 && <p className="text-sm text-slate-500">No phases yet. Add the first one below.</p>}
+                {phases.length === 0 && <p className="text-sm text-mute">No phases yet. Add the first one below.</p>}
                 {phases.map((p) => (
                   <div key={p.id}>
                     <div className="flex flex-wrap items-end gap-2">
@@ -306,13 +334,13 @@ export default async function AccountPage({
                         <SubmitButton className={dangerButton}>Remove</SubmitButton>
                       </form>
                     </div>
-                    <p className="mt-1 text-sm text-slate-600">
+                    <p className="mt-1 text-sm text-mute">
                       From {formatDate(p.effective_start)}: {phaseAmount(contract.billing_model, p)}
                       {p.superseded_at && " (superseded)"}
                     </p>
                   </div>
                 ))}
-                <form action={savePhase} className="grid gap-2 border-t border-slate-200 pt-3 sm:grid-cols-[1.2fr_1fr_0.8fr_0.8fr_auto]">
+                <form action={savePhase} className="grid gap-2 border-t border-line pt-4 sm:grid-cols-[1.2fr_1fr_0.8fr_0.8fr_auto]">
                   {hidden}
                   <input type="hidden" name="contract_id" value={contract.id} />
                   <input type="hidden" name="billing_model" value={contract.billing_model} />
@@ -337,7 +365,7 @@ export default async function AccountPage({
             description="Dumpster moves, bulk pickups, trash room visits, and as-needed jobs. Work with no rate here is held for review and never billed at a guessed rate."
           >
             <div className="space-y-3">
-              {contract.event_rates.length === 0 && <p className="text-sm text-slate-500">No rates yet.</p>}
+              {contract.event_rates.length === 0 && <p className="text-sm text-mute">No rates yet.</p>}
               {contract.event_rates.map((r) => (
                 <form key={r.id} action={removeEventRate} className="flex items-center justify-between gap-3">
                   {hidden}
@@ -349,7 +377,7 @@ export default async function AccountPage({
                   <SubmitButton className={dangerButton}>Remove</SubmitButton>
                 </form>
               ))}
-              <form action={addEventRate} className="grid gap-2 border-t border-slate-200 pt-3 sm:grid-cols-[1fr_1fr_0.8fr_auto]">
+              <form action={addEventRate} className="grid gap-2 border-t border-line pt-4 sm:grid-cols-[1fr_1fr_0.8fr_auto]">
                 {hidden}
                 <input type="hidden" name="contract_id" value={contract.id} />
                 <select name="event_type" aria-label="Type of work" className={inputClass}>

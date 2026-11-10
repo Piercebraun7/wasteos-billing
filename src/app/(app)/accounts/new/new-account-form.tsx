@@ -39,7 +39,7 @@ export function NewAccountForm({
   }
 
   return (
-    <form onSubmit={onSubmit} className="mt-6 space-y-6">
+    <form onSubmit={onSubmit} className="mt-8 space-y-5">
       {error && <Notice kind="error">{error}</Notice>}
 
       <Card title="Bill-to customer" description="Who the invoice is addressed to. Often the management company.">
@@ -146,7 +146,7 @@ export function NewAccountForm({
           <Field label="Rebate percent" hint="Paid back yearly under a preferred agreement. 0 if none.">
             <input name="rebate_percent" inputMode="decimal" defaultValue="0" className={inputClass} />
           </Field>
-          <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-3">
+          <label className="flex items-center gap-2 text-sm text-slate-600 sm:col-span-3">
             <input name="preferred_agreement" type="checkbox" className="size-4" />
             Under the RPM Living national preferred agreement
           </label>

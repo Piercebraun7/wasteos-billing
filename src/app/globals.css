@@ -3,9 +3,45 @@
 @theme inline {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  /* Kaizen brand: Midnight Blue, Tomato, Ice Blue. */
+  --color-ink: #20242b;
+  --color-ink-2: #2b3039;
+  --color-night: #14171c;
+  --color-tomato: #ff4b37;
+  --color-ice: #e7f0f6;
+  --color-canvas: #f5f5f7;
+  --color-line: #e3e5e9;
+  --color-mute: #6b7280;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 body {
-  background: #f8fafc;
-  color: #0f172a;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-feature-settings: "ss01", "cv11";
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-tomato) 25%, transparent);
+}
+
+/* Fine technical grid used on dark surfaces. */
+.grid-lines {
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.045) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.rise { animation: rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .rise { animation: none; }
 }

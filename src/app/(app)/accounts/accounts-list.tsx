@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { inputClass } from "@/components/ui";
+import { Empty, Monogram } from "@/components/ui";
 import { formatDate } from "@/lib/format";
 import { formatCents } from "@/lib/money";
 
@@ -26,42 +26,68 @@ export function AccountsList({ rows }: { rows: AccountRow[] }) {
 
   return (
     <>
-      <input
-        type="search"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search property or customer"
-        aria-label="Search accounts"
-        className={`${inputClass} mt-4`}
-      />
+      <div className="relative">
+        <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-4 top-1/2 size-[18px] -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.5-3.5" />
+        </svg>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search property or customer"
+          aria-label="Search accounts"
+          className="h-12 w-full rounded-full border border-line bg-white pl-11 pr-28 text-[15px] text-ink outline-none transition placeholder:text-slate-400 focus:border-ink focus:ring-4 focus:ring-ink/10"
+        />
+        <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 font-mono text-[11px] uppercase tracking-[0.14em] text-mute">
+          {shown.length} of {rows.length}
+        </span>
+      </div>
 
       {shown.length === 0 ? (
-        <div className="mt-6 rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">
-          {rows.length === 0 ? "No accounts yet. Click New Account to add the first one." : "No accounts match that search."}
-        </div>
+        <Empty>{rows.length === 0 ? "No accounts yet. Click New Account to add the first one." : "No accounts match that search."}</Empty>
       ) : (
-        <ul className="mt-6 divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
-          {shown.map((r) => (
-            <li key={r.account_id}>
-              <Link href={`/accounts/${r.account_id}`} className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-slate-50">
-                <div className="min-w-0">
-                  <p className="truncate font-semibold text-slate-900">{r.property_name}</p>
-                  <p className="truncate text-sm text-slate-600">
-                    {r.customer_name}
-                    {r.unit_count !== null && ` · ${r.unit_count} units`}
-                    {r.status !== "active" && " · Inactive"}
+        <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-[0_1px_2px_rgb(16_24_40/0.04)]">
+          <div className="hidden grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_5rem_9rem_9rem] gap-4 border-b border-line px-6 py-3 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-mute md:grid">
+            <span>Property</span>
+            <span>Billed to</span>
+            <span className="text-right">Units</span>
+            <span className="text-right">Oldest due</span>
+            <span className="text-right">Balance</span>
+          </div>
+          <ul className="divide-y divide-line">
+            {shown.map((r) => (
+              <li key={r.account_id}>
+                <Link
+                  href={`/accounts/${r.account_id}`}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-4 transition hover:bg-slate-50 sm:px-6 md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_5rem_9rem_9rem]"
+                >
+                  <div className="flex min-w-0 items-center gap-4">
+                    <Monogram name={r.property_name} />
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-ink">
+                        {r.property_name}
+                        {r.status !== "active" && (
+                          <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-mute">Inactive</span>
+                        )}
+                      </p>
+                      <p className="truncate text-sm text-mute md:hidden">
+                        {r.customer_name}
+                        {r.unit_count !== null && ` · ${r.unit_count} units`}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="hidden truncate text-[15px] text-slate-600 md:block">{r.customer_name}</p>
+                  <p className="hidden text-right text-[15px] tabular-nums text-slate-600 md:block">{r.unit_count ?? ""}</p>
+                  <p className="hidden text-right text-sm text-mute md:block">
+                    {r.oldest_open_due_date ? formatDate(r.oldest_open_due_date) : "Nothing open"}
                   </p>
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-lg font-bold tabular-nums text-slate-900">{formatCents(Number(r.balance_cents))}</p>
-                  <p className="text-xs text-slate-500">
-                    {r.oldest_open_due_date ? `Oldest due ${formatDate(r.oldest_open_due_date)}` : "Nothing open"}
-                  </p>
-                </div>
-              </Link>
-            </li>
-          ))}
-        </ul>
+                  <p className="text-right text-[17px] font-semibold tabular-nums text-ink">{formatCents(Number(r.balance_cents))}</p>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </>
   );

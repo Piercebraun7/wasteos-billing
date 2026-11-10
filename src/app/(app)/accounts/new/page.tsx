@@ -1,8 +1,7 @@
 import Link from "next/link";
+import { PageHeader } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { NewAccountForm } from "./new-account-form";
-
-export const instant = false;
 
 export default async function NewAccountPage() {
   const { supabase } = await requireAdmin();
@@ -14,11 +13,16 @@ export default async function NewAccountPage() {
 
   return (
     <>
-      <Link href="/accounts" className="text-sm text-slate-600 hover:text-black">Back to Accounts</Link>
-      <h1 className="mt-2 text-2xl font-bold text-slate-900">New Account</h1>
-      <p className="mt-1 text-slate-600">
-        Only the property name, the customer, and the billing model are required. Everything can be edited later.
-      </p>
+      <Link href="/accounts" className="inline-flex items-center gap-1.5 text-sm font-medium text-mute transition hover:text-ink">
+        <span aria-hidden>&larr;</span> Accounts
+      </Link>
+      <div className="mt-4">
+        <PageHeader
+          eyebrow="Receivables"
+          title="New Account"
+          description="Only the property name, the customer, and the billing model are required. Everything can be edited later."
+        />
+      </div>
       <NewAccountForm
         customers={(customers.data ?? []) as { id: string; name: string }[]}
         owners={(owners.data ?? []) as { id: string; legal_name: string }[]}
