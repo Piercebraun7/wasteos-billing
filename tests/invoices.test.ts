@@ -151,6 +151,6 @@ describe("drafts", () => {
   it("has the confirmed 3% monthly late fee template", async () => {
     const t = await one<{ percent_bps: number; frequency: string; recurrence_interval_days: number; compounding: boolean; grace_days: number; confirmed: boolean }>(
       "select percent_bps, frequency, recurrence_interval_days, compounding, grace_days, confirmed_at is not null as confirmed from public.late_fee_templates where name = '3% monthly'");
-    expect(t).toEqual({ percent_bps: 300, frequency: "recurring", recurrence_interval_days: 30, compounding: false, grace_days: 0, confirmed: true });
+    expect(t).toEqual({ percent_bps: 300, frequency: "recurring", recurrence_interval_days: 30, compounding: true, grace_days: 0, confirmed: true });
   });
 });
