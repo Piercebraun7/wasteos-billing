@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Card, dangerButton, Field, inputClass, Notice, primaryButton, secondaryButton } from "@/components/ui";
+import { SubmitButton } from "@/components/submit-button";
 import { requireAdmin } from "@/lib/auth";
 import { BILLING_MODELS, EVENT_TYPES, formatDate, usesPhases } from "@/lib/format";
 import { bpsToInput, centsToInput, formatCents } from "@/lib/money";
@@ -169,7 +170,7 @@ export default async function AccountPage({
             <input name="postal_code" defaultValue={property.postal_code ?? ""} className={inputClass} />
           </Field>
           <div className="sm:col-span-6">
-            <button className={primaryButton}>Save property</button>
+            <SubmitButton className={primaryButton}>Save property</SubmitButton>
           </div>
         </form>
       </Card>
@@ -190,7 +191,7 @@ export default async function AccountPage({
             This customer pays by ACH (bank transfer instructions will print on their invoices)
           </label>
           <div className="sm:col-span-2">
-            <button className={primaryButton}>Save bill-to details</button>
+            <SubmitButton className={primaryButton}>Save bill-to details</SubmitButton>
           </div>
         </form>
       </Card>
@@ -206,12 +207,12 @@ export default async function AccountPage({
                 <input name="name" defaultValue={c.name} aria-label="Contact name" className={inputClass} />
                 <input name="email" type="email" defaultValue={c.email} aria-label="Contact email" className={inputClass} />
                 <input name="role" defaultValue={c.role ?? ""} placeholder="Role" aria-label="Contact role" className={inputClass} />
-                <button className={secondaryButton}>Save</button>
+                <SubmitButton className={secondaryButton}>Save</SubmitButton>
               </form>
               <form action={removeContact}>
                 {hidden}
                 <input type="hidden" name="contact_id" value={c.id} />
-                <button className={dangerButton}>Remove</button>
+                <SubmitButton className={dangerButton}>Remove</SubmitButton>
               </form>
             </div>
           ))}
@@ -220,7 +221,7 @@ export default async function AccountPage({
             <input name="name" placeholder="Name" aria-label="New contact name" className={inputClass} />
             <input name="email" type="email" placeholder="Email" aria-label="New contact email" className={inputClass} />
             <input name="role" placeholder="Role" aria-label="New contact role" className={inputClass} />
-            <button className={primaryButton}>Add contact</button>
+            <SubmitButton className={primaryButton}>Add contact</SubmitButton>
           </form>
         </div>
       </Card>
@@ -268,7 +269,7 @@ export default async function AccountPage({
                 Late fee template: {contract.late_fee_template ? contract.late_fee_template.name : "not set"}. Sales tax: off.
               </p>
               <div className="sm:col-span-3">
-                <button className={primaryButton}>Save contract terms</button>
+                <SubmitButton className={primaryButton}>Save contract terms</SubmitButton>
               </div>
             </form>
           </Card>
@@ -297,12 +298,12 @@ export default async function AccountPage({
                         ) : (
                           <input name="flat" inputMode="decimal" defaultValue={centsToInput(p.flat_amount_cents)} placeholder="$ per month" aria-label="Monthly amount in dollars" className={`${inputClass} sm:col-span-2`} />
                         )}
-                        <button className={secondaryButton}>Save</button>
+                        <SubmitButton className={secondaryButton}>Save</SubmitButton>
                       </form>
                       <form action={removePhase}>
                         {hidden}
                         <input type="hidden" name="phase_id" value={p.id} />
-                        <button className={dangerButton}>Remove</button>
+                        <SubmitButton className={dangerButton}>Remove</SubmitButton>
                       </form>
                     </div>
                     <p className="mt-1 text-sm text-slate-600">
@@ -325,7 +326,7 @@ export default async function AccountPage({
                   ) : (
                     <input name="flat" inputMode="decimal" placeholder="$ per month" aria-label="Monthly amount in dollars" className={`${inputClass} sm:col-span-2`} />
                   )}
-                  <button className={primaryButton}>Add phase</button>
+                  <SubmitButton className={primaryButton}>Add phase</SubmitButton>
                 </form>
               </div>
             </Card>
@@ -345,7 +346,7 @@ export default async function AccountPage({
                     {EVENT_TYPES[r.event_type] ?? r.event_type}
                     {r.time_window && ` (${r.time_window})`}: <span className="font-semibold">{formatCents(r.rate_cents)}</span> each
                   </p>
-                  <button className={dangerButton}>Remove</button>
+                  <SubmitButton className={dangerButton}>Remove</SubmitButton>
                 </form>
               ))}
               <form action={addEventRate} className="grid gap-2 border-t border-slate-200 pt-3 sm:grid-cols-[1fr_1fr_0.8fr_auto]">
@@ -358,7 +359,7 @@ export default async function AccountPage({
                 </select>
                 <input name="time_window" placeholder="Visit window (optional)" aria-label="Visit window" className={inputClass} />
                 <input name="rate" inputMode="decimal" placeholder="$ each" aria-label="Rate in dollars" className={inputClass} />
-                <button className={primaryButton}>Add rate</button>
+                <SubmitButton className={primaryButton}>Add rate</SubmitButton>
               </form>
             </div>
           </Card>

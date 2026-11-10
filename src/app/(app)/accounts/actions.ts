@@ -218,6 +218,12 @@ export async function saveContact(fd: FormData) {
   if (!name) back(accountId, "error", "Enter the contact's name.");
   if (!EMAIL.test(email)) back(accountId, "error", `The email for ${name} does not look right.`);
   const values = { name, email, role: text(fd, "role") || null };
+  // The same email is never added to one account twice.
+  let duplicate = supabase.from("billing_contacts").select("id").eq("account_id", accountId).eq("email", email);
+  if (id) duplicate = duplicate.neq("id", id);
+  const existing = await duplicate.limit(1);
+  if (existing.error) back(accountId, "error", existing.error.message);
+  if (existing.data?.length) back(accountId, "error", `${email} is already a contact on this account.`);
   const { error } = id
     ? await supabase.from("billing_contacts").update(values).eq("id", id)
     : await supabase.from("billing_contacts").insert({ ...values, account_id: accountId });
