@@ -18,24 +18,24 @@ export default async function DashboardPage() {
         eyebrow="Overview"
         title={`Welcome, ${name.split(" ")[0]}.`}
         description="Every balance here is the live sum of the ledger. Invoices, payments, and aging will fill in as each part of the app is switched on."
-        action={<Link href="/accounts/new" className={primaryButton}>New Account</Link>}
+        action={<Link href="/accounts/new" className={primaryButton}>New Property</Link>}
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="sm:col-span-2">
-          <Stat dark label="Total outstanding" value={formatCents(outstanding)} detail="Across every account" />
+          <Stat dark label="Total outstanding" value={formatCents(outstanding)} detail="Across every client" />
         </div>
-        <Stat label="Accounts" value={String(rows.length)} detail={`${customers} ${customers === 1 ? "customer" : "customers"}`} />
+        <Stat label="Properties" value={String(rows.length)} detail={`${customers} ${customers === 1 ? "client" : "clients"}`} />
         <Stat label="Units under contract" value={units.toLocaleString("en-US")} detail="From property records" />
       </div>
 
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <Eyebrow>Accounts</Eyebrow>
+          <Eyebrow>Properties</Eyebrow>
           <Link href="/accounts" className="text-sm font-medium text-ink underline-offset-4 hover:underline">View all</Link>
         </div>
         {rows.length === 0 ? (
-          <Empty>No accounts yet. Create the first one with New Account.</Empty>
+          <Empty>No properties yet. Create the first one with New Property.</Empty>
         ) : (
           <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {rows.slice(0, 6).map((r) => (

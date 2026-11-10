@@ -14,13 +14,13 @@ export default async function NewAccountPage() {
   return (
     <>
       <Link href="/accounts" className="inline-flex items-center gap-1.5 text-sm font-medium text-mute transition hover:text-ink">
-        <span aria-hidden>&larr;</span> Accounts
+        <span aria-hidden>&larr;</span> Clients
       </Link>
       <div className="mt-4">
         <PageHeader
           eyebrow="Receivables"
-          title="New Account"
-          description="Only the property name, the customer, and the billing model are required. Everything can be edited later."
+          title="New Property"
+          description="Only the client, the property name, and the billing model are required. Everything can be edited later."
         />
       </div>
       <NewAccountForm

@@ -67,9 +67,10 @@ async function seedCustomer(key: "A" | "B", userId: string) {
     [r.account],
   );
   await db.query("insert into public.customer_users (user_id, customer_id) values ($1, $2)", [userId, r.customer]);
+  await db.query("update public.billing_accounts set go_live_service_month = '2026-09-01' where id = $1", [r.account]);
   r.sent = await one(
     `insert into public.invoices (account_id, invoice_number, service_month, invoice_date, due_date, status, subtotal_cents, total_cents)
-     values ($1, $2, '2026-09-01', '2026-09-30', '2026-10-30', 'sent', 300000, 300000) returning id`,
+     values ($1, $2, '2026-09-01', '2026-09-30', '2026-10-30', 'draft', 300000, 300000) returning id`,
     [r.account, key === "A" ? 1001 : 1002],
   );
   r.draft = await one(
@@ -84,6 +85,7 @@ async function seedCustomer(key: "A" | "B", userId: string) {
       [inv, r.phase],
     );
   }
+  await db.query("update public.invoices set status = 'sent' where id = $1", [r.sent]);
   r.payment = await one(
     `insert into public.payments (customer_id, method, amount_cents, received_date, check_number)
      values ($1, 'check', 100000, '2026-10-15', '5501') returning id`,
@@ -127,7 +129,7 @@ beforeAll(async () => {
   db = await createDatabase();
   // Seed as the admin so the seed itself exercises the admin's write access.
   await as(db, admin, async () => {
-    await db.query("insert into public.late_fee_templates (name, percent_bps, grace_days) values ('Unconfirmed 1.5%', 150, 5)");
+    await db.query("delete from public.late_fee_templates"); await db.query("insert into public.late_fee_templates (name, percent_bps, grace_days) values ('Unconfirmed 1.5%', 150, 5)");
     await seedCustomer("A", USER_A);
     await seedCustomer("B", USER_B);
   }, { commit: true });
@@ -245,7 +247,7 @@ describe("customer contact for customer A", () => {
       as(db, contactA, () => db.query("insert into public.customer_users (user_id, customer_id) values ($1, $2)", [USER_A, ids.B.customer])),
     ).rejects.toThrow(/row-level security/);
     await as(db, contactA, async () => {
-      const upd = await db.query("update public.invoices set total_cents = 0, subtotal_cents = 0 where id = $1", [ids.A.sent]);
+      const upd = await db.query("update public.invoices set status = 'paid' where id = $1", [ids.A.sent]);
       expect(upd.affectedRows).toBe(0);
       const del = await db.query("delete from public.customers where id = $1", [ids.A.customer]);
       expect(del.affectedRows).toBe(0);

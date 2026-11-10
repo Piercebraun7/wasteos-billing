@@ -42,22 +42,22 @@ export function NewAccountForm({
     <form onSubmit={onSubmit} className="mt-8 space-y-5">
       {error && <Notice kind="error">{error}</Notice>}
 
-      <Card title="Bill-to customer" description="Who the invoice is addressed to. Often the management company.">
+      <Card title="Client" description="The property manager. One client can have many properties.">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Customer">
+          <Field label="Client">
             <select name="customer_id" value={customerId} onChange={(e) => setCustomerId(e.target.value)} className={inputClass}>
-              <option value="">New customer</option>
+              <option value="">New client</option>
               {customers.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
           </Field>
           {!customerId && (
-            <Field label="New customer name">
+            <Field label="New client name">
               <input name="customer_name" className={inputClass} />
             </Field>
           )}
-          <Field label="Legal owner (optional)" hint="Only when the owner is different from the customer.">
+          <Field label="Legal owner (optional)" hint="Only when the owner is different from the client.">
             <select name="owner_entity_id" value={ownerChoice} onChange={(e) => setOwnerChoice(e.target.value)} className={inputClass}>
               <option value="">None</option>
               <option value="new">New owner</option>
@@ -74,7 +74,7 @@ export function NewAccountForm({
         </div>
       </Card>
 
-      <Card title="Property">
+      <Card title="Property" description="The property is billed on its own invoice, under the client above.">
         <div className="grid gap-4 sm:grid-cols-6">
           <Field label="Property name" className="sm:col-span-4">
             <input name="property_name" required className={inputClass} />
@@ -100,7 +100,7 @@ export function NewAccountForm({
         </div>
       </Card>
 
-      <Card title="Billing contacts" description="The people who receive invoices by email.">
+      <Card title="Points of contact" description="The people at this property who receive its invoices by email.">
         <div className="space-y-3">
           {contacts.map((key) => (
             <div key={key} className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">

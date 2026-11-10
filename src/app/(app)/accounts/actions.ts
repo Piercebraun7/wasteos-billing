@@ -79,7 +79,7 @@ export async function createAccount(fd: FormData): Promise<FormResult> {
 
   const customerId = text(fd, "customer_id");
   const customerName = text(fd, "customer_name");
-  if (!customerId && !customerName) return { error: "Choose an existing customer or type a new customer name." };
+  if (!customerId && !customerName) return { error: "Choose an existing client or type a new client name." };
 
   const propertyName = text(fd, "property_name");
   if (!propertyName) return { error: "Enter the property name." };
@@ -184,7 +184,7 @@ export async function updateBillTo(fd: FormData) {
   const { supabase } = await requireAdmin();
   const accountId = text(fd, "account_id");
   const name = text(fd, "customer_name");
-  if (!name) back(accountId, "error", "Enter the customer name.");
+  if (!name) back(accountId, "error", "Enter the client name.");
   const { error } = await supabase
     .from("customers")
     .update({ name, is_ach_payer: fd.get("is_ach_payer") === "on" })
@@ -206,7 +206,7 @@ export async function updateBillTo(fd: FormData) {
     const res = await supabase.from("billing_accounts").update({ owner_entity_id: created.data.id }).eq("id", accountId);
     if (res.error) back(accountId, "error", res.error.message);
   }
-  back(accountId, "saved", "Bill-to details saved.");
+  back(accountId, "saved", "Client details saved.");
 }
 
 export async function saveContact(fd: FormData) {
@@ -320,4 +320,54 @@ export async function removeEventRate(fd: FormData) {
   const { error } = await supabase.from("contract_event_rates").delete().eq("id", text(fd, "rate_id"));
   if (error) back(accountId, "error", error.message);
   back(accountId, "saved", "Rate removed.");
+}
+
+export async function updateBillingSetup(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const accountId = text(fd, "account_id");
+  const goLive = text(fd, "go_live_month"); // "2026-11" or empty
+  if (goLive && !/^\d{4}-\d{2}$/.test(goLive)) back(accountId, "error", "Choose the go-live service month.");
+  const active = fd.get("active") === "on";
+
+  const account = await supabase
+    .from("billing_accounts")
+    .update({ go_live_service_month: goLive ? `${goLive}-01` : null })
+    .eq("id", accountId);
+  if (account.error) back(accountId, "error", account.error.message);
+
+  const contract = await supabase
+    .from("contracts")
+    .update({ late_fee_template_id: text(fd, "late_fee_template_id") || null, status: active ? "active" : "draft" })
+    .eq("id", text(fd, "contract_id"));
+  if (contract.error) back(accountId, "error", contract.error.message);
+  back(accountId, "saved", active ? "Saved. This account is active for billing." : "Saved. This account is not active for billing.");
+}
+
+export async function addBillableEvent(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const accountId = text(fd, "account_id");
+  const date = text(fd, "event_date");
+  const quantity = text(fd, "quantity") || "1";
+  if (!DATE.test(date)) back(accountId, "error", "Choose the date the work was done.");
+  if (!/^\d+(\.\d{1,2})?$/.test(quantity) || Number(quantity) <= 0) back(accountId, "error", "Quantity must be a number above zero.");
+  const { error } = await supabase.from("billable_events").insert({
+    account_id: accountId,
+    event_date: date,
+    event_type: text(fd, "event_type"),
+    time_window: text(fd, "time_window") || null,
+    quantity,
+    description: text(fd, "description") || null,
+    source_reference: "Entered by hand",
+    status: "approved",
+  });
+  if (error) back(accountId, "error", error.message);
+  back(accountId, "saved", "Work logged. It will appear on the invoice for that month.");
+}
+
+export async function removeBillableEvent(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const accountId = text(fd, "account_id");
+  const { error } = await supabase.from("billable_events").delete().eq("id", text(fd, "event_id")).neq("status", "invoiced");
+  if (error) back(accountId, "error", error.message);
+  back(accountId, "saved", "Logged work removed.");
 }
