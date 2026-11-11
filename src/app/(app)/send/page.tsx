@@ -8,7 +8,7 @@ import { formatCents } from "@/lib/money";
 import { sendAll, sendOne } from "./actions";
 
 type Invoice = { id: string; account_id: string; invoice_number: number; total_cents: number; due_date: string; kind: string };
-type Account = { id: string; property: { name: string }; customer: { name: string }; contacts: { name: string; email: string; is_active: boolean }[] };
+type Account = { id: string; property: { name: string }; customer: { name: string }; contacts: { name: string; email: string; is_active: boolean; delivery: string }[] };
 type Log = { id: string; subject: string | null; recipients: string[]; sent_at: string; delivered_at: string | null; bounced_at: string | null; opened_at: string | null; provider_message_id: string | null };
 
 export default async function SendPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
@@ -16,7 +16,7 @@ export default async function SendPage({ searchParams }: { searchParams: Promise
   const { saved, error } = await searchParams;
   const [invoicesRes, accountsRes, defaultsRes, logRes, settings] = await Promise.all([
     supabase.from("invoices").select("id, account_id, invoice_number, total_cents, due_date, kind").eq("status", "approved").order("invoice_number"),
-    supabase.from("billing_accounts").select("id, property:properties(name), customer:customers(name), contacts:billing_contacts(name, email, is_active)"),
+    supabase.from("billing_accounts").select("id, property:properties(name), customer:customers(name), contacts:billing_contacts(name, email, is_active, delivery)"),
     supabase.from("account_send_defaults").select("*"),
     supabase.from("email_sends").select("*").order("sent_at", { ascending: false }).limit(60),
     supabase.from("app_settings").select("email_sender, copy_address").maybeSingle(),
@@ -96,6 +96,7 @@ export default async function SendPage({ searchParams }: { searchParams: Promise
                 {contacts.map((c) => (
                   <label key={c.email} className="flex items-center gap-2 text-[15px] text-slate-700">
                     <input type="checkbox" name="to" value={c.email} defaultChecked={remembered.size === 0 || remembered.has(c.email.toLowerCase())} className="size-4" />
+                    {c.delivery === "cc" && <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider text-mute">CC</span>}
                     {c.name} <span className="text-mute">{c.email}</span>
                   </label>
                 ))}

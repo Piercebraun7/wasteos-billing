@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import { todayInPhoenix } from "@/lib/billing/dates";
-import { usesPhases } from "@/lib/format";
+import { draftLoggedWork } from "@/lib/billing/drafts";
+import { formatDate, usesPhases } from "@/lib/format";
 import { parseDollarsToCents, parsePercentToBps } from "@/lib/money";
 
 const text = (fd: FormData, key: string) => String(fd.get(key) ?? "").trim();
@@ -226,7 +227,13 @@ export async function saveContact(fd: FormData) {
   if (!name) back(accountId, "error", "Enter the contact's name.", text(fd, "return_to"));
   if (!EMAIL.test(email)) back(accountId, "error", `The email for ${name} does not look right.`, text(fd, "return_to"));
   // Anything a person types or saves counts as checked by them.
-  const values = { name, email, role: text(fd, "role") || null, confirmed_at: new Date().toISOString() };
+  const values = {
+    name,
+    email,
+    role: text(fd, "role") || null,
+    delivery: text(fd, "delivery") === "cc" ? "cc" : "to",
+    confirmed_at: new Date().toISOString(),
+  };
   // The same email is never added to one account twice.
   let duplicate = supabase.from("billing_contacts").select("id").eq("account_id", accountId).eq("email", email);
   if (id) duplicate = duplicate.neq("id", id);
@@ -370,7 +377,16 @@ export async function addBillableEvent(fd: FormData) {
     status: "approved",
   });
   if (error) back(accountId, "error", error.message);
-  back(accountId, "saved", "Work logged. It will appear on the invoice for that month.");
+  // Work billed per job gets its own draft invoice, dated the day it was done.
+  let run;
+  try {
+    run = await draftLoggedWork(supabase, accountId);
+  } catch (e) {
+    back(accountId, "error", `Work logged, but the draft could not be made: ${e instanceof Error ? e.message : "unknown error"}`);
+  }
+  revalidatePath("/review");
+  if (run!.created.length > 0) back(accountId, "saved", `Work logged. A draft invoice dated ${formatDate(date)} is waiting in the review queue.`);
+  back(accountId, "saved", run!.skipped[0]?.reason ? `Work logged. No draft yet: ${run!.skipped[0].reason}` : "Work logged. It will appear on the invoice for that month.");
 }
 
 export async function removeBillableEvent(fd: FormData) {
@@ -523,4 +539,22 @@ export async function addBulkService(fd: FormData) {
   if (rateRow.error) back(accountId, "error", rateRow.error.message, "");
   revalidatePath("/schedule");
   back(accountId, "saved", "Bulk trash added. Log each pickup under Logged work and it will be billed on its own invoice.", "");
+}
+
+/** Removes a property: deleted if it was never invoiced, archived if it has billing history. */
+export async function removeProperty(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const accountId = text(fd, "account_id");
+  const name = text(fd, "property_name");
+  const { data, error } = await supabase.rpc("delete_billing_account", { p_account_id: accountId });
+  if (error) back(accountId, "error", error.message);
+  revalidatePath("/accounts");
+  revalidatePath("/schedule");
+  revalidatePath("/contacts");
+  revalidatePath("/");
+  const message =
+    data === "archived"
+      ? `${name} has billing history, so it was archived instead of deleted. Billing is off, and its invoices and balance are kept.`
+      : `${name} was deleted.`;
+  redirect(`/accounts?saved=${encodeURIComponent(message)}`);
 }

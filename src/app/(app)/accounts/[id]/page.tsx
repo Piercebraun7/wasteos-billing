@@ -7,6 +7,7 @@ import { monthLabel } from "@/lib/billing/dates";
 import { BILLING_MODELS, EVENT_TYPES, formatDate, usesPhases } from "@/lib/format";
 import { bpsToInput, centsToInput, formatCents } from "@/lib/money";
 import {
+  removeProperty,
   addBillableEvent,
   addBulkService,
   toggleBilling,
@@ -533,6 +534,18 @@ export default async function AccountPage({
           </Card>
         </>
       )}
+
+      <details className="rounded-3xl border border-line bg-white p-5 sm:p-7">
+        <summary className="cursor-pointer text-sm font-medium text-red-600">Remove this property</summary>
+        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-mute">
+          If this property has never been invoiced, it is deleted along with its drafts, schedule, and contacts. If it has any billing history, it is archived instead: billing stops, and its invoices and balance are kept.
+        </p>
+        <form action={removeProperty} className="mt-4">
+          {hidden}
+          <input type="hidden" name="property_name" value={property.name} />
+          <SubmitButton className={`${dangerButton} border border-red-200`}>Yes, remove {property.name}</SubmitButton>
+        </form>
+      </details>
     </div>
   );
 }

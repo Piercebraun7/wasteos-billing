@@ -142,3 +142,20 @@ export async function saveItem(fd: FormData) {
   if (error) backToItems("error", error.message.includes("duplicate") ? `There is already an item called ${name}.` : error.message);
   backToItems("saved", id ? `${name} saved.` : `${name} added.`);
 }
+
+/** Removes an item. One that has been used on an invoice is kept for the record and just taken off the list. */
+export async function removeItem(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const id = text(fd, "item_id");
+  const name = text(fd, "name");
+  const used = await supabase.from("invoice_lines").select("id").eq("service_item_id", id).limit(1);
+  if (used.error) backToItems("error", used.error.message);
+  if (used.data?.length) {
+    const { error } = await supabase.from("service_items").update({ is_active: false }).eq("id", id);
+    if (error) backToItems("error", error.message);
+    backToItems("saved", `${name} has been used on an invoice, so it was moved to "No longer in use" instead of deleted.`);
+  }
+  const { error } = await supabase.from("service_items").delete().eq("id", id);
+  if (error) backToItems("error", error.message);
+  backToItems("saved", `${name} removed.`);
+}

@@ -28,7 +28,7 @@ type Choice = { to: string[]; copySelf: boolean; copyJr: boolean };
  */
 async function sendForAccount(supabase: SupabaseClient, userEmail: string, accountId: string, choice: Choice | null): Promise<string | null> {
   const [account, invoicesRes, settings, defaults, overview] = await Promise.all([
-    supabase.from("billing_accounts").select("id, property:properties(name), contacts:billing_contacts(email, is_active)").eq("id", accountId).single(),
+    supabase.from("billing_accounts").select("id, property:properties(name), contacts:billing_contacts(email, is_active, delivery)").eq("id", accountId).single(),
     supabase.from("invoices").select("id, invoice_number, total_cents, due_date, service_month, kind").eq("account_id", accountId).eq("status", "approved").order("invoice_number"),
     supabase.from("app_settings").select("email_sender, email_reply_to, copy_address").maybeSingle(),
     supabase.from("account_send_defaults").select("*").eq("account_id", accountId).maybeSingle(),
@@ -39,17 +39,27 @@ async function sendForAccount(supabase: SupabaseClient, userEmail: string, accou
   const invoices = invoicesRes.data ?? [];
   if (invoices.length === 0) return null;
 
-  const contacts = ((account.data.contacts ?? []) as { email: string; is_active: boolean }[]).filter((c) => c.is_active).map((c) => c.email.toLowerCase());
+  const contacts = ((account.data.contacts ?? []) as { email: string; is_active: boolean; delivery: string }[])
+    .filter((c) => c.is_active)
+    .map((c) => ({ email: c.email.toLowerCase(), cc: c.delivery === "cc" }));
+  const ccContacts = new Set(contacts.filter((c) => c.cc).map((c) => c.email));
   // No explicit choice: use who it went to last time, or every contact the first time.
   const remembered = ((defaults.data?.recipient_emails as string[] | undefined) ?? []).filter((e) => EMAIL.test(e));
   const picked: Choice = choice ?? {
-    to: remembered.length ? remembered : contacts,
+    to: remembered.length ? remembered : contacts.map((c) => c.email),
     copySelf: defaults.data?.send_copy_to_self ?? false,
     copyJr: defaults.data?.send_to_jr ?? false,
   };
-  const to = [...new Set(picked.to.map((e) => e.trim().toLowerCase()).filter((e) => EMAIL.test(e)))];
-  if (to.length === 0) return `${propertyName}: there is no one to send to. Add a contact on the Contacts page.`;
-  const cc = [...new Set([picked.copySelf ? userEmail : "", picked.copyJr ? (settings.data?.copy_address ?? "") : ""].filter((e) => EMAIL.test(e) && !to.includes(e.toLowerCase())))];
+  const chosen = [...new Set(picked.to.map((e) => e.trim().toLowerCase()).filter((e) => EMAIL.test(e)))];
+  const to = chosen.filter((e) => !ccContacts.has(e));
+  if (to.length === 0) return `${propertyName}: there is no one in the To line. Add a contact on the Contacts page.`;
+  const cc = [
+    ...new Set(
+      [...chosen.filter((e) => ccContacts.has(e)), picked.copySelf ? userEmail.toLowerCase() : "", picked.copyJr ? (settings.data?.copy_address ?? "").toLowerCase() : ""].filter(
+        (e) => EMAIL.test(e) && !to.includes(e),
+      ),
+    ),
+  ];
 
   const attachments: Attachment[] = [];
   for (const inv of invoices) {
@@ -81,7 +91,7 @@ async function sendForAccount(supabase: SupabaseClient, userEmail: string, accou
   const marked = await supabase.from("invoices").update({ status: "sent", sent_at: now }).in("id", invoices.map((i) => i.id)).eq("status", "approved");
   const saved = await supabase
     .from("account_send_defaults")
-    .upsert({ account_id: accountId, recipient_emails: to, send_copy_to_self: picked.copySelf, send_to_jr: picked.copyJr }, { onConflict: "account_id" });
+    .upsert({ account_id: accountId, recipient_emails: chosen, send_copy_to_self: picked.copySelf, send_to_jr: picked.copyJr }, { onConflict: "account_id" });
   const problem = log.error ?? marked.error ?? saved.error;
   return problem ? `${propertyName}: the email was sent, but recording it failed: ${problem.message}` : null;
 }

@@ -234,3 +234,56 @@ describe("services and ad hoc invoices", () => {
     expect(c.service_category).toBe("valet");
   });
 });
+
+describe("removing a property", () => {
+  const make = async (name: string) =>
+    (await one<{ id: string }>("select public.create_billing_account($1) as id", [
+      JSON.stringify({ customer_name: "Solo Client " + name, property: { name }, contacts: [{ name: "AP", email: "ap@example.com" }], contract: { billing_model: "per_unit_valet" },
+        phases: [{ label: "Full rate", effective_start: "2026-01-01", billable_units: "10", rate_per_unit_cents: "1250" }] }),
+    ])).id;
+  const count = async (sql: string, id: string) => Number((await one<{ n: number }>(sql, [id])).n);
+
+  it("deletes a property that was never invoiced, with its drafts, schedule, contacts, and now-empty client", async () => {
+    await as(db, admin, async () => {
+      const id = await make("Never Billed");
+      await db.query("update public.billing_accounts set go_live_service_month = '2026-11-01' where id = $1", [id]);
+      await db.query("select public.create_draft_invoice($1)", [JSON.stringify({ ...JSON.parse(draft("2026-11-01")), account_id: id })]);
+      const result = (await one<{ r: string }>("select public.delete_billing_account($1) as r", [id])).r;
+      expect(result).toBe("deleted");
+      expect(await count("select count(*) n from public.billing_accounts where id = $1", id)).toBe(0);
+      expect(await count("select count(*) n from public.invoices where account_id = $1", id)).toBe(0);
+      expect(await count("select count(*) n from public.billing_contacts where account_id = $1", id)).toBe(0);
+      expect(Number((await one<{ n: number }>("select count(*) n from public.properties where name = 'Never Billed'")).n)).toBe(0);
+      expect(Number((await one<{ n: number }>("select count(*) n from public.customers where name = 'Solo Client Never Billed'")).n)).toBe(0);
+    });
+  });
+
+  it("archives a property that has been invoiced, keeping its invoice and balance", async () => {
+    await as(db, admin, async () => {
+      const id = await make("Billed Once");
+      await db.query("update public.billing_accounts set go_live_service_month = '2026-11-01' where id = $1", [id]);
+      await db.query("update public.app_settings set next_invoice_number = 9000");
+      const inv = (await one<{ id: string }>("select public.create_draft_invoice($1) as id", [JSON.stringify({ ...JSON.parse(draft("2026-11-01")), account_id: id })])).id;
+      await db.query("select public.approve_invoice($1)", [inv]);
+      const result = (await one<{ r: string }>("select public.delete_billing_account($1) as r", [id])).r;
+      expect(result).toBe("archived");
+      expect((await one<{ status: string }>("select status from public.billing_accounts where id = $1", [id])).status).toBe("inactive");
+      expect(await count("select count(*) n from public.invoices where account_id = $1", id)).toBe(1);
+      expect(await count("select count(*) n from public.ledger_entries where account_id = $1", id)).toBe(1);
+      expect(await count("select count(*) n from public.contracts where account_id = $1 and status = 'ended'", id)).toBe(1);
+    });
+  });
+
+  it("is refused for anyone who is not a billing admin", async () => {
+    await expect(as(db, stranger, () => db.query("select public.delete_billing_account(gen_random_uuid())"))).rejects.toThrow(/Only a billing admin/);
+  });
+
+  it("contacts default to the To line and can be set to CC", async () => {
+    await as(db, admin, async () => {
+      const id = await make("Contact Kinds");
+      await db.query("insert into public.billing_contacts (account_id, name, email, delivery) values ($1, 'Regional', 'r@example.com', 'cc')", [id]);
+      const rows = (await db.query<{ delivery: string }>("select delivery from public.billing_contacts where account_id = $1 order by delivery", [id])).rows;
+      expect(rows.map((r) => r.delivery)).toEqual(["cc", "to"]);
+    });
+  });
+});

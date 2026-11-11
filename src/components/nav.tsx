@@ -9,6 +9,7 @@ const ITEMS = [
   { href: "/schedule", label: "Schedule of billing", icon: "M4 6h16v14H4zM4 10h16M9 6v14M15 6v14" },
   { href: "/invoices/new", label: "Create invoice", icon: "M12 5v14M5 12h14" },
   { href: "/review", label: "Review queue", icon: "M5 4h14v16H5zM9 9h6M9 13h6M9 17h3" },
+  { href: "/invoices", label: "Invoices", icon: "M7 4h10v16l-2.5-1.5L12 20l-2.5-1.5L7 20zM10 9h4M10 13h4" },
   { href: "/send", label: "Send", icon: "M4 12l16-8-6 16-3-7z" },
   { href: "/contacts", label: "Contacts", icon: "M4 6h16v12H4zM4 7l8 6 8-6" },
   { href: "/items", label: "Products and services", icon: "M5 5h6v6H5zM13 5h6v6h-6zM5 13h6v6H5zM13 13h6v6h-6z" },
@@ -23,7 +24,9 @@ export function Nav({ orientation }: { orientation: "vertical" | "horizontal" })
         const active =
           item.href === "/"
             ? pathname === "/"
-            : pathname.startsWith(item.href) || (item.href === "/review" && pathname.startsWith("/invoices") && !pathname.startsWith("/invoices/new"));
+            : item.href === "/invoices"
+              ? pathname === "/invoices" || (pathname.startsWith("/invoices/") && !pathname.startsWith("/invoices/new"))
+              : pathname.startsWith(item.href);
         return (
           <Link
             key={item.href}
