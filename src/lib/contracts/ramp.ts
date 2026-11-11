@@ -49,10 +49,11 @@ export function rampPhases(input: {
   }
   const phases: NewPhase[] = [];
   for (const step of steps) {
-    const units = step.free ? fullUnits : (step.units ?? fullUnits);
-    const rate = step.free ? 0 : rateCents;
+    const flat = !step.free && step.flatCents != null ? step.flatCents : null;
+    const units = flat !== null ? null : step.free ? fullUnits : (step.units ?? fullUnits);
+    const rate = flat !== null ? null : step.free ? 0 : rateCents;
     const last = phases.at(-1);
-    if (last && last.billable_units === units && last.rate_per_unit_cents === rate) {
+    if (last && last.billable_units === units && last.rate_per_unit_cents === rate && last.flat_amount_cents === flat) {
       if (step.free) last.label = "Free months";
       continue;
     }
@@ -62,7 +63,7 @@ export function rampPhases(input: {
       effective_start: rampMonthStart(start, step.month, align),
       billable_units: units,
       rate_per_unit_cents: rate,
-      flat_amount_cents: null,
+      flat_amount_cents: flat,
     });
   }
   return phases;

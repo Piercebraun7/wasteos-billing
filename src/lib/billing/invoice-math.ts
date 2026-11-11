@@ -92,13 +92,15 @@ export function recurringLines(input: {
 
     const days = parts(segEnd).d - parts(segStart).d + 1;
     const monthly = phaseMonthlyCents(phase);
+    // A valet contract can still carry a flat-fee phase (for example $800.00 for 36 units).
+    const perUnit = model === "per_unit_valet" && phase.flat_amount_cents === null;
     const amount = prorate(monthly, days, dim);
     const partial = days < dim;
 
     let basis: string;
     if (monthly === 0) {
       basis = phase.label;
-    } else if (model === "per_unit_valet") {
+    } else if (perUnit) {
       basis = `${phase.billable_units} units at ${formatCents(phase.rate_per_unit_cents ?? 0)}`;
     } else {
       basis = `${formatCents(monthly)} per month`;
@@ -108,8 +110,8 @@ export function recurringLines(input: {
     lines.push({
       line_type: model === "per_unit_valet" ? "valet" : "flat",
       description: `${SERVICE_NAME[model]}, ${basis}${range}`,
-      quantity: model === "per_unit_valet" ? (phase.billable_units ?? 0) : 1,
-      unit_price_cents: model === "per_unit_valet" ? (phase.rate_per_unit_cents ?? 0) : monthly,
+      quantity: perUnit ? (phase.billable_units ?? 0) : 1,
+      unit_price_cents: perUnit ? (phase.rate_per_unit_cents ?? 0) : monthly,
       amount_cents: amount,
       contract_phase_id: phase.id,
       billable_event_id: null,

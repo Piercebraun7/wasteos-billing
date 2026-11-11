@@ -77,6 +77,47 @@ describe("reading a contract", () => {
   });
 });
 
+describe("other Appendix B layouts", () => {
+  const wrap = (row: string, lines: string) => `Term: 6 Years, Commencing February, 17 2026 Total Monthly Service Fee: $1.00
+Initial Number of Containers: N/A Total # of Containers: Total: ${row} APPENDIX B Estimated Schedule ${lines}`;
+
+  it("works out units from the fee when the label has none", () => {
+    const t = parseContractText(wrap("163 $12.5 $2037.50 N/A $2037.50", "Month 1 $12.50 $0.00 Month 3 $12.50 $0.00 Month 4 $12.50 $125.00 Month 11 $12.50 $1000.00 Month 12 $12.50 $2037.50"));
+    expect(t).toMatchObject({ kind: "per_unit", commencement: "2026-02-17", unitCount: 163, ratePerUnitCents: 1250, monthlyFeeCents: 203750 });
+    expect(t.ramp.map((r) => [r.month, r.free, r.units])).toEqual([[1, true, null], [3, true, null], [4, false, 10], [11, false, 80], [12, false, null]]);
+  });
+
+  it("reads trial months, a dash for the rate, and a dash for tax", () => {
+    const t = parseContractText(wrap("338 $10.00 $3380.00 - $3380.00", "Month 1 (Trial) $0 $0 Month 4 (20 Units) $10.00 $200.00 Month 12+ (Full Service Fee) $10.00 $3380.00"));
+    expect(t).toMatchObject({ unitCount: 338, ratePerUnitCents: 1000, monthlyFeeCents: 338000, taxPercent: null });
+    expect(t.ramp.map((r) => [r.month, r.free, r.units])).toEqual([[1, true, null], [4, false, 20], [12, false, null]]);
+  });
+
+  it("bills a full month flat when it is not a whole number of units at the rate", () => {
+    const t = parseContractText(wrap("36 $22.22 $800.00 - $800.00", "Month 1 (Free) - $0 Month 4 (Full) $22.22 $800.00 Month 12+ (Full) $22.22 $800.00"));
+    expect(t.ramp.map((r) => [r.month, r.free, r.flatCents ?? null])).toEqual([[1, true, null], [4, false, 80000], [12, false, 80000]]);
+    const phases = rampPhases({ steps: t.ramp, start: "2026-02-22", align: "calendar", fullUnits: 36, rateCents: 2222 });
+    expect(phases).toEqual([
+      { label: "Free month", effective_start: "2026-02-22", billable_units: 36, rate_per_unit_cents: 0, flat_amount_cents: null },
+      { label: "Full rate", effective_start: "2026-05-01", billable_units: null, rate_per_unit_cents: null, flat_amount_cents: 80000 },
+    ]);
+    const cell = scheduleCell({ model: "per_unit_valet", phases: phases.map((p, i) => ({ ...p, id: String(i) })), month: "2026-10-01" });
+    expect(cell).toMatchObject({ amountCents: 80000, units: null });
+  });
+
+  it("reads a term in months, a bare tax percent, waived months, and a total with no dollar sign", () => {
+    const t = parseContractText(`Term: 36 Months, Commencing December 10, 2026 Initial Number of Containers: 343
+Total: 343 $12.25 $4201.75 8.25% $4548.39 APPENDIX B Month 1-3 (WAIVED) $12.25 $0.00 Month 4 (20 Units) $12.25 $245.00 Month 13+ (Full Contract Value) $12.25 4201.75`);
+    expect(t).toMatchObject({ termYears: 3, commencement: "2026-12-10", unitCount: 343, ratePerUnitCents: 1225, monthlyFeeCents: 420175, taxPercent: "8.25" });
+    expect(t.ramp.map((r) => [r.month, r.free, r.units])).toEqual([[1, true, null], [4, false, 20], [13, false, null]]);
+  });
+
+  it("reads a month range as one step", () => {
+    const t = parseContractText(wrap("260 $8.00 $2080.00 N/A $2080.00", "Month 1-12 $8.00 $2080.00"));
+    expect(t.ramp).toEqual([{ month: 1, label: "Full Service Fee", free: false, units: null, totalCents: 208000 }]);
+  });
+});
+
 describe("building phases from the schedule", () => {
   const steps = parseContractText(VALET).ramp;
 

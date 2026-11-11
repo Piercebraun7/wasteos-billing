@@ -31,11 +31,17 @@ export function scheduleCell(input: {
   return {
     month: first,
     amountCents: amount,
-    units: input.model === "per_unit_valet" ? lastLine.quantity : null,
+    units: input.model === "per_unit_valet" && lastLine.unit_price_cents * lastLine.quantity === phaseOf(input.phases, lastLine.contract_phase_id) ? lastLine.quantity : null,
     free: amount === 0,
     partial: lines.length > 1 || !covered,
     phaseStarts: input.phases.some((p) => !p.superseded_at && p.effective_start >= first && p.effective_start <= last),
   };
+}
+
+/** The full monthly amount of the phase a line came from, when that phase bills per unit; otherwise -1. */
+function phaseOf(phases: Phase[], id: string | null): number {
+  const phase = phases.find((p) => p.id === id);
+  return phase && phase.flat_amount_cents === null ? (phase.billable_units ?? 0) * (phase.rate_per_unit_cents ?? 0) : -1;
 }
 
 export function monthsOfYear(year: number): ISODate[] {
