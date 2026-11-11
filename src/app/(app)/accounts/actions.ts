@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
+import { todayInPhoenix } from "@/lib/billing/dates";
 import { usesPhases } from "@/lib/format";
 import { parseDollarsToCents, parsePercentToBps } from "@/lib/money";
 
@@ -374,4 +375,61 @@ export async function removeBillableEvent(fd: FormData) {
   const { error } = await supabase.from("billable_events").delete().eq("id", text(fd, "event_id")).neq("status", "invoiced");
   if (error) back(accountId, "error", error.message);
   back(accountId, "saved", "Logged work removed.");
+}
+
+/**
+ * One switch for billing. Turning it on fills in any standard term that is
+ * still empty (late fee terms, pre-tax basis, go-live month), then activates.
+ */
+export async function toggleBilling(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const accountId = text(fd, "account_id");
+  const turnOn = text(fd, "turn") === "on";
+  const returnTo = text(fd, "return_to");
+  const done = (kind: "saved" | "error", message: string): never => {
+    revalidatePath("/schedule");
+    revalidatePath("/accounts");
+    revalidatePath(`/accounts/${accountId}`);
+    revalidatePath(`/schedule/${accountId}`);
+    const base = returnTo.startsWith("/schedule") ? returnTo : `/accounts/${accountId}`;
+    redirect(`${base}${base.includes("?") ? "&" : "?"}${kind}=${encodeURIComponent(message)}`);
+  };
+
+  const { data: account, error } = await supabase
+    .from("billing_accounts")
+    .select("go_live_service_month, property:properties(name), contracts(id, status, created_at, late_fee_template_id, quoted_basis, start_date)")
+    .eq("id", accountId)
+    .single();
+  if (error) done("error", error.message);
+  type C = { id: string; status: string; created_at: string; late_fee_template_id: string | null; quoted_basis: string | null; start_date: string | null };
+  const contracts = (account!.contracts ?? []) as C[];
+  const contract = contracts.find((c) => c.status === "active") ?? [...contracts].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  if (!contract) done("error", "This property has no contract yet.");
+  const name = (account!.property as unknown as { name: string }).name;
+
+  if (!turnOn) {
+    const off = await supabase.from("contracts").update({ status: "draft" }).eq("id", contract.id);
+    if (off.error) done("error", off.error.message);
+    done("saved", `Billing is off for ${name}. No invoice will be drafted for it.`);
+  }
+
+  const updates: Record<string, string> = { status: "active" };
+  if (!contract.late_fee_template_id) {
+    const { data: templates } = await supabase.from("late_fee_templates").select("id, name").not("confirmed_at", "is", null).order("created_at");
+    const standard = (templates ?? []).find((t) => t.name === "3% monthly") ?? (templates ?? [])[0];
+    if (!standard) done("error", "There is no confirmed late fee template yet.");
+    updates.late_fee_template_id = standard!.id;
+  }
+  if (!contract.quoted_basis) updates.quoted_basis = "pre_tax";
+
+  if (!account!.go_live_service_month) {
+    // First month this app invoices: the current month, or the start month if service starts later.
+    const current = `${todayInPhoenix().slice(0, 7)}-01`;
+    const startMonth = contract.start_date ? `${contract.start_date.slice(0, 7)}-01` : current;
+    const goLive = await supabase.from("billing_accounts").update({ go_live_service_month: startMonth > current ? startMonth : current }).eq("id", accountId);
+    if (goLive.error) done("error", goLive.error.message);
+  }
+  const on = await supabase.from("contracts").update(updates).eq("id", contract.id);
+  if (on.error) done("error", on.error.message);
+  done("saved", `Billing is on for ${name}.`);
 }

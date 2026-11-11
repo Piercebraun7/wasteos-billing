@@ -5,6 +5,7 @@ import { todayInPhoenix } from "@/lib/billing/dates";
 import type { BillingModel, Phase } from "@/lib/billing/invoice-math";
 import { monthsOfYear, scheduleCell, type ScheduleCell } from "@/lib/billing/schedule";
 import { formatCents } from "@/lib/money";
+import { toggleBilling } from "../accounts/actions";
 
 type Row = {
   id: string;
@@ -20,11 +21,12 @@ const GRID = "grid grid-cols-[15rem_repeat(12,minmax(5.6rem,1fr))_7rem]";
 /** "$1,862.50" -> "$1,862.50"; whole dollars drop the cents to keep cells calm. */
 const compact = (cents: number) => (cents % 100 === 0 ? formatCents(cents).slice(0, -3) : formatCents(cents));
 
-export default async function SchedulePage({ searchParams }: { searchParams: Promise<{ year?: string }> }) {
+export default async function SchedulePage({ searchParams }: { searchParams: Promise<{ year?: string; saved?: string; error?: string }> }) {
   const { supabase } = await requireAdmin();
   const today = todayInPhoenix();
   const thisMonth = `${today.slice(0, 7)}-01`;
-  const wanted = Number((await searchParams).year);
+  const query = await searchParams;
+  const wanted = Number(query.year);
   const year = Number.isInteger(wanted) && wanted > 2000 && wanted < 2100 ? wanted : Number(today.slice(0, 4));
   const months = monthsOfYear(year);
 
@@ -61,6 +63,8 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
         description="What every property is contracted to be billed each month, worked out from its phases by the same math that drafts the invoices."
         action={<Link href="/accounts/new?next=schedule" className={primaryButton}>Launch a property</Link>}
       />
+      {query.saved && <Notice kind="ok">{query.saved}</Notice>}
+      {query.error && <Notice kind="error">{query.error}</Notice>}
       {accounts.error && <Notice kind="error">Could not load the schedule: {accounts.error.message}</Notice>}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -84,7 +88,7 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
         <div className="overflow-x-auto rounded-3xl border border-line bg-white shadow-[0_1px_2px_rgb(16_24_40/0.04)]">
           <div className="min-w-[1180px]">
             <div className={`${GRID} border-b border-line bg-slate-50/80 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-mute`}>
-              <div className="sticky left-0 z-10 bg-slate-50 px-5 py-3">Property</div>
+              <div className="sticky left-0 z-10 flex justify-between bg-slate-50 py-3 pl-5 pr-2"><span>Property</span><span>Billing</span></div>
               {months.map((m, i) => (
                 <div key={m} className={`px-2 py-3 text-right ${m === thisMonth ? "text-ink" : ""}`}>
                   {m === thisMonth && <span className="mr-1 inline-block size-1.5 rounded-full bg-tomato align-middle" aria-hidden />}
@@ -105,14 +109,27 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
                     </div>
                   )}
                   <div className={`${GRID} group border-b border-line`}>
-                    <Link href={`/schedule/${row.id}`} className="sticky left-0 z-10 flex flex-col justify-center bg-white px-5 py-3 transition group-hover:bg-slate-50">
-                      <span className="truncate font-medium text-ink">{row.property.name}</span>
-                      <span className="truncate text-xs text-mute">
-                        {row.property.unit_count != null && `${row.property.unit_count} units · `}
-                        {live ? "Active" : "Not active yet"}
-                        {!contract?.contract_file_path && " · no contract file"}
-                      </span>
-                    </Link>
+                    <div className="sticky left-0 z-10 flex items-center justify-between gap-2 bg-white py-3 pl-5 pr-2 transition group-hover:bg-slate-50">
+                      <Link href={`/schedule/${row.id}`} className="min-w-0">
+                        <span className="block truncate font-medium text-ink">{row.property.name}</span>
+                        <span className="block truncate text-xs text-mute">
+                          {row.property.unit_count != null && row.property.unit_count > 0 && `${row.property.unit_count} units`}
+                          {!contract?.contract_file_path && `${row.property.unit_count ? " · " : ""}no contract file`}
+                        </span>
+                      </Link>
+                      <form action={toggleBilling}>
+                        <input type="hidden" name="account_id" value={row.id} />
+                        <input type="hidden" name="turn" value={live ? "off" : "on"} />
+                        <input type="hidden" name="return_to" value={`/schedule?year=${year}`} />
+                        <button
+                          title={live ? "Billing is on. Click to turn it off." : "Billing is off. Click to turn it on."}
+                          aria-label={`Billing for ${row.property.name} is ${live ? "on" : "off"}. Click to switch.`}
+                          className={`flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition ${live ? "justify-end bg-emerald-500" : "justify-start bg-slate-300"}`}
+                        >
+                          <span className="size-5 rounded-full bg-white shadow" />
+                        </button>
+                      </form>
+                    </div>
                     {cells.map((cell) => {
                       const invoice = invoiced.get(`${row.id}:${cell.month}`);
                       const billable = live && row.go_live_service_month !== null && cell.month >= row.go_live_service_month;
@@ -155,7 +172,7 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
         </div>
       )}
       <p className="text-xs text-mute">
-        Grey amounts are before a property&apos;s go-live month or not yet active, so this app will not invoice them. Click a property to upload its contract and build its schedule.
+        Use the switch beside a property to turn its billing on or off. Grey amounts will not be invoiced by this app: the property is off, or the month is before its first month here. Click a property name to see its contract and schedule.
       </p>
     </div>
   );

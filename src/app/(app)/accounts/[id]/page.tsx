@@ -8,6 +8,7 @@ import { BILLING_MODELS, EVENT_TYPES, formatDate, usesPhases } from "@/lib/forma
 import { bpsToInput, centsToInput, formatCents } from "@/lib/money";
 import {
   addBillableEvent,
+  toggleBilling,
   addEventRate,
   removeBillableEvent,
   updateBillingSetup,
@@ -129,12 +130,9 @@ export default async function AccountPage({
     ["Service start", contract?.start_date ? formatDate(contract.start_date) : "Not set"],
   ];
 
-  // What is still missing before this property can be invoiced. Each gets a red asterisk.
+  const billingOn = contract?.status === "active";
+  // What only a person can supply. Everything else is filled in when billing is turned on.
   const need = {
-    lateFee: !contract?.late_fee_template?.confirmed_at,
-    goLive: !account.go_live_service_month,
-    active: contract?.status !== "active",
-    basis: !contract?.quoted_basis,
     contact: contacts.length === 0,
     phase: Boolean(contract && usesPhases(contract.billing_model) && phases.filter((p) => !p.superseded_at).length === 0),
   };
@@ -182,39 +180,52 @@ export default async function AccountPage({
       {errorMessage && <Notice kind="error">{errorMessage}</Notice>}
       {anythingNeeded && (
         <p className="text-sm text-mute">
-          <Needed /> Still needed before this property can be invoiced.
+          <Needed /> Still needed for this property.
         </p>
       )}
 
       {contract && (
-        <Card
-          title="Billing setup"
-          description="An account is only invoiced when it is switched on here. The go-live month is the first service month this app invoices: earlier months stay in QuickBooks, which prevents double billing."
-        >
-          <form action={updateBillingSetup} className="grid gap-4 sm:grid-cols-3">
-            {hidden}
-            <input type="hidden" name="contract_id" value={contract.id} />
-            <Field label="Late fee terms" needed={need.lateFee}>
-              <select name="late_fee_template_id" defaultValue={contract.late_fee_template_id ?? ""} className={inputClass}>
-                <option value="">Not set</option>
-                {(templates.data ?? []).map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Go-live service month" needed={need.goLive}>
-              <input type="month" name="go_live_month" defaultValue={account.go_live_service_month?.slice(0, 7) ?? ""} className={inputClass} />
-            </Field>
-            <label className="flex items-center gap-2 self-end pb-3 text-sm text-slate-600">
-              <input name="active" type="checkbox" defaultChecked={contract.status === "active"} className="size-4" />
-              Active for billing
-              {need.active && <Needed />}
-            </label>
-            <div className="sm:col-span-3">
-              <SubmitButton className={primaryButton}>Save billing setup</SubmitButton>
+        <section className="rounded-3xl border border-line bg-white p-5 shadow-[0_1px_2px_rgb(16_24_40/0.04)] sm:p-7">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="flex items-center gap-2.5 text-lg font-semibold tracking-tight text-ink">
+                <span className={`size-2.5 rounded-full ${billingOn ? "bg-emerald-500" : "bg-slate-300"}`} aria-hidden />
+                Billing is {billingOn ? "on" : "off"}
+              </p>
+              <p className="mt-1 text-sm text-mute">
+                Net {contract.net_days} · {contract.late_fee_template?.name ?? "3% monthly"} late fee · quoted {contract.quoted_basis === "tax_inclusive" ? "tax-inclusive" : "pre-tax"} ·{" "}
+                {account.go_live_service_month ? `first invoice from this app: ${monthLabel(account.go_live_service_month)} service` : "first invoice from this app: this month's service"}
+              </p>
             </div>
-          </form>
-        </Card>
+            <form action={toggleBilling}>
+              {hidden}
+              <input type="hidden" name="turn" value={billingOn ? "off" : "on"} />
+              <SubmitButton className={billingOn ? secondaryButton : primaryButton}>{billingOn ? "Turn billing off" : "Turn billing on"}</SubmitButton>
+            </form>
+          </div>
+          <details className="mt-4 border-t border-line pt-4">
+            <summary className="cursor-pointer text-sm font-medium text-ink">Change these terms</summary>
+            <form action={updateBillingSetup} className="mt-4 grid gap-4 sm:grid-cols-3">
+              {hidden}
+              <input type="hidden" name="contract_id" value={contract.id} />
+              {billingOn && <input type="hidden" name="active" value="on" />}
+              <Field label="Late fee terms">
+                <select name="late_fee_template_id" defaultValue={contract.late_fee_template_id ?? ""} className={inputClass}>
+                  {(templates.data ?? []).length === 0 && <option value="">None confirmed yet</option>}
+                  {(templates.data ?? []).map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="First service month this app invoices" hint="Earlier months stay in QuickBooks, which prevents double billing.">
+                <input type="month" name="go_live_month" defaultValue={account.go_live_service_month?.slice(0, 7) ?? ""} className={inputClass} />
+              </Field>
+              <div className="self-end pb-0.5">
+                <SubmitButton className={secondaryButton}>Save terms</SubmitButton>
+              </div>
+            </form>
+          </details>
+        </section>
       )}
 
       <Card title="Invoices">
@@ -335,7 +346,7 @@ export default async function AccountPage({
               <Field label="Net days" hint="Days from invoice date to due date.">
                 <input name="net_days" inputMode="numeric" defaultValue={contract.net_days} className={inputClass} />
               </Field>
-              <Field label="Quoted amount is" hint="From the signed contract." needed={need.basis}>
+              <Field label="Quoted amount is" hint="From the signed contract.">
                 <select name="quoted_basis" defaultValue={contract.quoted_basis ?? ""} className={inputClass}>
                   <option value="">Not confirmed yet</option>
                   <option value="pre_tax">Pre-tax</option>
