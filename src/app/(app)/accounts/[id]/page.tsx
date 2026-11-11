@@ -8,6 +8,7 @@ import { BILLING_MODELS, EVENT_TYPES, formatDate, usesPhases } from "@/lib/forma
 import { bpsToInput, centsToInput, formatCents } from "@/lib/money";
 import {
   addBillableEvent,
+  addBulkService,
   toggleBilling,
   addEventRate,
   removeBillableEvent,
@@ -45,6 +46,8 @@ type Contract = {
   notion_url: string | null;
   created_at: string;
   late_fee_template_id: string | null;
+  service_category: string | null;
+  expected_monthly_cents: number | null;
   late_fee_template: { name: string; confirmed_at: string | null } | null;
   phases: Phase[];
   event_rates: EventRate[];
@@ -117,7 +120,9 @@ export default async function AccountPage({
   const contacts = [...account.contacts].sort((a, b) =>
     a.created_at.localeCompare(b.created_at),
   );
-  const contract = [...account.contracts].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  const byAge = [...account.contracts].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const contract = byAge.find((c) => usesPhases(c.billing_model)) ?? byAge[0];
+  const bulk = byAge.find((c) => c.id !== contract?.id && c.service_category === "bulk");
   const phases = contract ? [...contract.phases].sort((a, b) => a.effective_start.localeCompare(b.effective_start)) : [];
   const balance = Number(overview.data?.balance_cents ?? 0);
   const hidden = <input type="hidden" name="account_id" value={account.id} />;
@@ -228,7 +233,8 @@ export default async function AccountPage({
         </section>
       )}
 
-      <Card title="Invoices">
+      <Card title="Invoices" description="Scheduled and one-off invoices for this property.">
+        <Link href={`/invoices/new?account=${account.id}`} className={`${secondaryButton} mb-3`}>Create invoice</Link>
         {(invoicesRes.data ?? []).length === 0 ? (
           <p className="text-sm text-mute">No invoices yet.</p>
         ) : (
@@ -467,6 +473,28 @@ export default async function AccountPage({
                 <SubmitButton className={primaryButton}>Add rate</SubmitButton>
               </form>
             </div>
+          </Card>
+
+          <Card
+            title="Bulk trash service"
+            description="Billed per load on its own invoice, separate from the monthly service. The account balance covers both."
+          >
+            {bulk ? (
+              <p className="text-[15px] text-slate-700">
+                {bulk.event_rates.map((r) => `${formatCents(r.rate_cents)} per load`).join(", ") || "No rate set"}
+                {bulk.expected_monthly_cents != null && ` · a usual month is ${formatCents(Number(bulk.expected_monthly_cents))}`}
+                <span className="text-mute"> · {bulk.status === "active" ? "billing on" : "billing off"}</span>
+              </p>
+            ) : contract.service_category === "bulk" ? (
+              <p className="text-sm text-mute">This property is a bulk trash customer. Its rate is under Rates for one-off work.</p>
+            ) : (
+              <form action={addBulkService} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                {hidden}
+                <input name="rate" inputMode="decimal" defaultValue="350.00" aria-label="Price per load in dollars" placeholder="$ per load" className={inputClass} />
+                <input name="loads" inputMode="decimal" defaultValue="1" aria-label="Usual loads per month" placeholder="Usual loads per month" className={inputClass} />
+                <SubmitButton className={primaryButton}>Add bulk trash</SubmitButton>
+              </form>
+            )}
           </Card>
 
           <Card

@@ -123,7 +123,7 @@ export function InvoicePdf({ doc }: { doc: InvoiceDocument }) {
               <View key={i} style={s.row} wrap={false}>
                 <View style={s.colDesc}>
                   <Text style={s.strong}>{c.title}</Text>
-                  <Text style={[s.mute, { fontSize: 8.5 }]}>{c.detail}</Text>
+                  {c.detail ? <Text style={[s.mute, { fontSize: 8.5 }]}>{c.detail}</Text> : null}
                 </View>
                 <Text style={s.colUnits}>{c.units}</Text>
                 <Text style={s.colRate}>{c.rateCents === null ? "" : formatCents(c.rateCents)}</Text>
@@ -135,6 +135,10 @@ export function InvoicePdf({ doc }: { doc: InvoiceDocument }) {
               <Text style={[s.amount, { fontFamily: "Rethink", fontWeight: 800, fontSize: 12.5 }]}>{formatCents(invoice.totalCents)}</Text>
             </View>
           </View>
+
+          {invoice.memo && (
+            <Text style={[s.mute, { marginTop: 8 }]}>{invoice.memo}</Text>
+          )}
 
           {/* 3. Outstanding balance */}
           <View style={{ marginTop: 12, borderRadius: 10, borderWidth: 0.8, borderColor: LINE, paddingVertical: 11, paddingHorizontal: 16 }} wrap={false}>

@@ -38,3 +38,21 @@ export function bpsToInput(bps: number | null | undefined): string {
   const frac = String(bps % 100).padStart(2, "0").replace(/0+$/, "");
   return frac ? `${whole}.${frac}` : String(whole);
 }
+
+/** Like parseDollarsToCents, but a leading minus is allowed (for a discount line). */
+export function parseSignedDollarsToCents(input: string): number | null {
+  const trimmed = input.trim();
+  const negative = trimmed.startsWith("-") || /^\(.*\)$/.test(trimmed);
+  const cents = parseDollarsToCents(trimmed.replace(/^[-(]\s*/, "").replace(/\)$/, ""));
+  return cents === null ? null : negative ? -cents : cents;
+}
+
+/** Quantity (up to two decimals) times a rate in cents, rounded half up to the cent. Integer math only. */
+export function lineAmountCents(quantity: string, rateCents: number): number | null {
+  const m = /^(\d+)(?:\.(\d{1,2}))?$/.exec(quantity.trim());
+  if (!m) return null;
+  const hundredths = Number(m[1]) * 100 + Number((m[2] ?? "").padEnd(2, "0"));
+  const raw = Math.abs(rateCents) * hundredths;
+  const rounded = Math.floor((2 * raw + 100) / 200);
+  return rateCents < 0 ? -rounded : rounded;
+}

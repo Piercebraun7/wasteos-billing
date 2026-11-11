@@ -11,9 +11,9 @@ export async function buildInvoiceDocument(supabase: SupabaseClient, invoiceId: 
   const { data: invoice } = await supabase
     .from("invoices")
     .select(
-      `*, lines:invoice_lines!invoice_lines_invoice_id_fkey(*),
+      `*, lines:invoice_lines!invoice_lines_invoice_id_fkey(*, item:service_items(name)),
        account:billing_accounts(id, property:properties(*), customer:customers(name, is_ach_payer),
-         contracts(status, net_days, created_at, billing_model, start_date, end_date, phases:contract_phases(*), late_fee_template:late_fee_templates(*)))`,
+         contracts(status, net_days, created_at, billing_model, service_category, start_date, end_date, phases:contract_phases(*), late_fee_template:late_fee_templates(*)))`,
     )
     .eq("id", invoiceId)
     .maybeSingle();
@@ -69,19 +69,23 @@ export async function buildInvoiceDocument(supabase: SupabaseClient, invoiceId: 
     .sort((a, b) => a.date.localeCompare(b.date));
 
   type ContractRow = {
-    status: string; net_days: number; created_at: string; billing_model: BillingModel;
+    status: string; net_days: number; created_at: string; billing_model: BillingModel; service_category: string | null;
     start_date: string | null; end_date: string | null; phases: Phase[];
     late_fee_template: Parameters<typeof lateFeeSentence>[0];
   };
   const contracts = (invoice.account.contracts ?? []) as ContractRow[];
-  const contract = contracts.find((c) => c.status === "active") ?? [...contracts].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  // Terms come from the service this invoice belongs to, falling back to any other on the property.
+  const sameService = contracts.filter((c) => (c.service_category ?? "") === (invoice.service_category ?? ""));
+  const pool = sameService.length ? sameService : contracts;
+  const contract = pool.find((c) => c.status === "active") ?? [...pool].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
   const property = invoice.account.property;
   const cityLine = [property.city, [property.state, property.postal_code].filter(Boolean).join(" ")].filter(Boolean).join(", ");
   const company = settings.data;
   const total = Number(invoice.total_cents);
   const serviceLabel = monthLabel(invoice.service_month);
-  const following = contract
-    ? scheduleCell({ model: contract.billing_model, phases: contract.phases ?? [], month: nextMonth(invoice.service_month), contractStart: contract.start_date, contractEnd: contract.end_date })
+  const scheduledService = invoice.kind !== "ad_hoc" && contract && contract.billing_model !== "per_event" && contract.billing_model !== "as_needed";
+  const following = scheduledService && contract
+    ? scheduleCell({ model: contract.billing_model, phases: contract.phases ?? [], month: nextMonth(invoice.service_month), contractStart: contract.start_date })
     : null;
 
   return {
@@ -98,13 +102,14 @@ export async function buildInvoiceDocument(supabase: SupabaseClient, invoiceId: 
       serviceMonth: monthLabel(invoice.service_month),
       totalCents: total,
       isDraft: invoice.status === "draft",
+      memo: invoice.memo ?? null,
     },
     billTo: {
       clientName: invoice.account.customer.name,
       propertyName: property.name,
       addressLines: [property.address_line1, property.address_line2, cityLine].filter(Boolean),
     },
-    charges: [...(invoice.lines as LineRow[])].sort((a, b) => a.sort_order - b.sort_order).map((l) => chargeRow(l, serviceLabel)),
+    charges: [...(invoice.lines as LineRow[])].sort((a, b) => a.sort_order - b.sort_order).map((l) => chargeRow(l, serviceLabel, invoice.kind === "ad_hoc")),
     nextMonth: following && following.amountCents !== null ? { label: monthLabel(following.month), amountCents: following.amountCents } : null,
     outstanding: { priorBalanceCents: priorTotal - lateFeeTotal, unpaidInvoices, lateFees, paymentsAndCredits },
     totalAmountDueCents: priorTotal + total,
@@ -115,11 +120,21 @@ export async function buildInvoiceDocument(supabase: SupabaseClient, invoiceId: 
 
 type LineRow = {
   description: string; amount_cents: number; sort_order: number; line_type: string;
-  quantity: number; unit_price_cents: number;
+  quantity: number; unit_price_cents: number; item: { name: string } | null;
 };
 
 /** Splits a stored line into the columns the invoice shows. */
-function chargeRow(l: LineRow, serviceLabel: string): InvoiceDocument["charges"][number] {
+function chargeRow(l: LineRow, serviceLabel: string, adHoc: boolean): InvoiceDocument["charges"][number] {
+  if (adHoc) {
+    const title = l.item?.name ?? l.description;
+    return {
+      title,
+      detail: l.description !== title ? l.description : "",
+      units: String(Number(l.quantity)),
+      rateCents: Number(l.unit_price_cents),
+      amountCents: Number(l.amount_cents),
+    };
+  }
   const [title, ...rest] = l.description.split(", ");
   // The unit count and rate get their own columns, so drop them from the text.
   const extra = rest.filter((part) => !/^\d+ units at \$[\d,.]+$/.test(part) && !/^\$[\d,.]+ per month$/.test(part));

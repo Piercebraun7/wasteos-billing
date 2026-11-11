@@ -156,10 +156,13 @@ export async function createAccount(fd: FormData): Promise<FormResult> {
 // to the page with a short message.
 // ---------------------------------------------------------------------------
 
-function back(accountId: string, kind: "saved" | "error", message: string): never {
+/** Returns to the property page, or to the Contacts page when the form was submitted from there. */
+function back(accountId: string, kind: "saved" | "error", message: string, returnTo = ""): never {
   revalidatePath(`/accounts/${accountId}`);
   revalidatePath("/accounts");
-  redirect(`/accounts/${accountId}?${kind}=${encodeURIComponent(message)}`);
+  revalidatePath("/contacts");
+  const base = returnTo === "contacts" ? "/contacts" : `/accounts/${accountId}`;
+  redirect(`${base}?${kind}=${encodeURIComponent(message)}`);
 }
 
 export async function updateProperty(fd: FormData) {
@@ -220,28 +223,29 @@ export async function saveContact(fd: FormData) {
   const id = text(fd, "contact_id");
   const name = text(fd, "name");
   const email = text(fd, "email").toLowerCase();
-  if (!name) back(accountId, "error", "Enter the contact's name.");
-  if (!EMAIL.test(email)) back(accountId, "error", `The email for ${name} does not look right.`);
-  const values = { name, email, role: text(fd, "role") || null };
+  if (!name) back(accountId, "error", "Enter the contact's name.", text(fd, "return_to"));
+  if (!EMAIL.test(email)) back(accountId, "error", `The email for ${name} does not look right.`, text(fd, "return_to"));
+  // Anything a person types or saves counts as checked by them.
+  const values = { name, email, role: text(fd, "role") || null, confirmed_at: new Date().toISOString() };
   // The same email is never added to one account twice.
   let duplicate = supabase.from("billing_contacts").select("id").eq("account_id", accountId).eq("email", email);
   if (id) duplicate = duplicate.neq("id", id);
   const existing = await duplicate.limit(1);
-  if (existing.error) back(accountId, "error", existing.error.message);
-  if (existing.data?.length) back(accountId, "error", `${email} is already a contact on this account.`);
+  if (existing.error) back(accountId, "error", existing.error.message, text(fd, "return_to"));
+  if (existing.data?.length) back(accountId, "error", `${email} is already a contact on this account.`, text(fd, "return_to"));
   const { error } = id
     ? await supabase.from("billing_contacts").update(values).eq("id", id)
     : await supabase.from("billing_contacts").insert({ ...values, account_id: accountId });
-  if (error) back(accountId, "error", error.message);
-  back(accountId, "saved", id ? "Contact saved." : "Contact added.");
+  if (error) back(accountId, "error", error.message, text(fd, "return_to"));
+  back(accountId, "saved", id ? "Contact saved." : "Contact added.", text(fd, "return_to"));
 }
 
 export async function removeContact(fd: FormData) {
   const { supabase } = await requireAdmin();
   const accountId = text(fd, "account_id");
   const { error } = await supabase.from("billing_contacts").delete().eq("id", text(fd, "contact_id"));
-  if (error) back(accountId, "error", error.message);
-  back(accountId, "saved", "Contact removed.");
+  if (error) back(accountId, "error", error.message, text(fd, "return_to"));
+  back(accountId, "saved", "Contact removed.", text(fd, "return_to"));
 }
 
 export async function updateContract(fd: FormData) {
@@ -408,19 +412,14 @@ export async function toggleBilling(fd: FormData) {
   const name = (account!.property as unknown as { name: string }).name;
 
   if (!turnOn) {
-    const off = await supabase.from("contracts").update({ status: "draft" }).eq("id", contract.id);
+    const off = await supabase.from("contracts").update({ status: "draft" }).eq("account_id", accountId).eq("status", "active");
     if (off.error) done("error", off.error.message);
     done("saved", `Billing is off for ${name}. No invoice will be drafted for it.`);
   }
 
-  const updates: Record<string, string> = { status: "active" };
-  if (!contract.late_fee_template_id) {
-    const { data: templates } = await supabase.from("late_fee_templates").select("id, name").not("confirmed_at", "is", null).order("created_at");
-    const standard = (templates ?? []).find((t) => t.name === "3% monthly") ?? (templates ?? [])[0];
-    if (!standard) done("error", "There is no confirmed late fee template yet.");
-    updates.late_fee_template_id = standard!.id;
-  }
-  if (!contract.quoted_basis) updates.quoted_basis = "pre_tax";
+  const { data: templates } = await supabase.from("late_fee_templates").select("id, name").not("confirmed_at", "is", null).order("created_at");
+  const standard = (templates ?? []).find((t) => t.name === "3% monthly") ?? (templates ?? [])[0];
+  if (!standard) done("error", "There is no confirmed late fee template yet.");
 
   if (!account!.go_live_service_month) {
     // First month this app invoices: the current month, or the start month if service starts later.
@@ -429,7 +428,99 @@ export async function toggleBilling(fd: FormData) {
     const goLive = await supabase.from("billing_accounts").update({ go_live_service_month: startMonth > current ? startMonth : current }).eq("id", accountId);
     if (goLive.error) done("error", goLive.error.message);
   }
-  const on = await supabase.from("contracts").update(updates).eq("id", contract.id);
-  if (on.error) done("error", on.error.message);
+  // Every service on the property is switched on, each keeping any terms already set.
+  for (const c of contracts.filter((c) => c.status !== "ended")) {
+    const on = await supabase
+      .from("contracts")
+      .update({ status: "active", late_fee_template_id: c.late_fee_template_id ?? standard!.id, quoted_basis: c.quoted_basis ?? "pre_tax" })
+      .eq("id", c.id);
+    if (on.error) done("error", on.error.message);
+  }
   done("saved", `Billing is on for ${name}.`);
+}
+
+/** Switches billing on for every property that is off. Terms are filled in the same way as the single switch. */
+export async function turnOnAllBilling() {
+  const { supabase } = await requireAdmin();
+  const { data: templates } = await supabase.from("late_fee_templates").select("id, name").not("confirmed_at", "is", null).order("created_at");
+  const standard = (templates ?? []).find((t) => t.name === "3% monthly") ?? (templates ?? [])[0];
+  const fail = (message: string): never => redirect(`/schedule?error=${encodeURIComponent(message)}`);
+  if (!standard) fail("There is no confirmed late fee template yet.");
+
+  const { data: accounts, error } = await supabase
+    .from("billing_accounts")
+    .select("id, go_live_service_month, contracts(id, status, late_fee_template_id, quoted_basis, start_date)")
+    .eq("status", "active");
+  if (error) fail(error.message);
+  const current = `${todayInPhoenix().slice(0, 7)}-01`;
+  let switched = 0;
+  for (const account of accounts ?? []) {
+    const off = (account.contracts ?? []).filter((c) => c.status === "draft");
+    if (off.length === 0) continue;
+    if (!account.go_live_service_month) {
+      const start = off[0].start_date ? `${String(off[0].start_date).slice(0, 7)}-01` : current;
+      const res = await supabase.from("billing_accounts").update({ go_live_service_month: start > current ? start : current }).eq("id", account.id);
+      if (res.error) fail(res.error.message);
+    }
+    for (const c of off) {
+      const res = await supabase
+        .from("contracts")
+        .update({ status: "active", late_fee_template_id: c.late_fee_template_id ?? standard!.id, quoted_basis: c.quoted_basis ?? "pre_tax" })
+        .eq("id", c.id);
+      if (res.error) fail(res.error.message);
+    }
+    switched++;
+  }
+  revalidatePath("/schedule");
+  revalidatePath("/accounts");
+  redirect(`/schedule?saved=${encodeURIComponent(`Billing switched on for ${switched} propert${switched === 1 ? "y" : "ies"}.`)}`);
+}
+
+/** Marks every contact on a property as checked today. */
+export async function confirmContacts(fd: FormData) {
+  const { supabase, user } = await requireAdmin();
+  const accountId = text(fd, "account_id");
+  const { error } = await supabase
+    .from("billing_contacts")
+    .update({ confirmed_at: new Date().toISOString(), confirmed_by: user.id })
+    .eq("account_id", accountId);
+  if (error) back(accountId, "error", error.message, "contacts");
+  back(accountId, "saved", "Contacts confirmed.", "contacts");
+}
+
+/** Adds bulk trash as its own service on a property: billed per load, on its own invoice. */
+export async function addBulkService(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const accountId = text(fd, "account_id");
+  const rate = parseDollarsToCents(text(fd, "rate"));
+  const loads = text(fd, "loads") || "1";
+  if (rate === null) back(accountId, "error", "Enter the price per load, for example 350.00.", "");
+  if (!/^\d+(\.\d{1,2})?$/.test(loads)) back(accountId, "error", "Usual loads per month must be a number, for example 1 or 1.5.", "");
+
+  const existing = await supabase.from("contracts").select("id, status, late_fee_template_id, quoted_basis, net_days").eq("account_id", accountId);
+  if (existing.error) back(accountId, "error", existing.error.message, "");
+  const others = existing.data ?? [];
+  const on = others.some((c) => c.status === "active");
+  const like = others.find((c) => c.late_fee_template_id) ?? others[0];
+  const expected = Math.floor((2 * rate! * Math.round(Number(loads) * 100) + 100) / 200);
+  const created = await supabase
+    .from("contracts")
+    .insert({
+      account_id: accountId,
+      billing_model: "per_event",
+      service_category: "bulk",
+      net_days: like?.net_days ?? 30,
+      late_fee_template_id: like?.late_fee_template_id ?? null,
+      quoted_basis: like?.quoted_basis ?? "pre_tax",
+      expected_monthly_cents: expected,
+      // Follows the property's switch, when its terms allow it.
+      status: on && like?.late_fee_template_id ? "active" : "draft",
+    })
+    .select("id")
+    .single();
+  if (created.error) back(accountId, "error", created.error.message, "");
+  const rateRow = await supabase.from("contract_event_rates").insert({ contract_id: created.data!.id, event_type: "bulk_pickup", rate_cents: rate, label: "Per full load" });
+  if (rateRow.error) back(accountId, "error", rateRow.error.message, "");
+  revalidatePath("/schedule");
+  back(accountId, "saved", "Bulk trash added. Log each pickup under Logged work and it will be billed on its own invoice.", "");
 }

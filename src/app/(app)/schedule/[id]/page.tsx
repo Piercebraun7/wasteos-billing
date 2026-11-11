@@ -52,7 +52,8 @@ export default async function LaunchPage({
     customer: { name: string };
     contracts: Contract[];
   };
-  const contract = account.contracts.find((c) => c.status === "active") ?? [...account.contracts].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  const byAge = [...account.contracts].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const contract = byAge.find((c) => usesPhases(c.billing_model)) ?? byAge[0];
   if (!contract) notFound();
   const terms = contract.scraped_terms;
   const phases = [...contract.phases].filter((p) => !p.superseded_at).sort((a, b) => a.effective_start.localeCompare(b.effective_start));
@@ -64,7 +65,7 @@ export default async function LaunchPage({
   const firstMonth = monthStart(contract.start_date ?? phases[0]?.effective_start ?? today);
   const strip: ScheduleCell[] = [];
   for (let month = firstMonth, i = 0; i < 24; i++, month = nextMonth(month)) {
-    strip.push(scheduleCell({ model: contract.billing_model, phases, month, contractStart: contract.start_date, contractEnd: contract.end_date }));
+    strip.push(scheduleCell({ model: contract.billing_model, phases, month, contractStart: contract.start_date }));
   }
   const peak = Math.max(1, ...strip.map((c) => c.amountCents ?? 0));
 

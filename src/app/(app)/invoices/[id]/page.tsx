@@ -50,7 +50,12 @@ export default async function InvoicePage({
 
       {saved && <Notice kind="ok">{saved}</Notice>}
       {errorMessage && <Notice kind="error">{errorMessage}</Notice>}
-      {invoice.status === "approved" && <Notice kind="info">Approved and posted to the account. Emailing it to the billing contacts is the next piece being built.</Notice>}
+      {invoice.status === "approved" && (
+        <Notice kind="info">
+          Approved and posted to the account. It has not been emailed yet: go to <Link href="/send" className="font-medium underline">Send</Link>.
+        </Notice>
+      )}
+      {invoice.memo && <p className="text-[15px] text-slate-600">{invoice.memo}</p>}
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
         <Card title="Lines">

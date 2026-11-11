@@ -10,6 +10,7 @@ export type InvoiceDocument = {
     serviceMonth: string; // "November 2026"
     totalCents: number;
     isDraft: boolean;
+    memo: string | null;
   };
   billTo: { clientName: string; propertyName: string; addressLines: string[] };
   charges: {

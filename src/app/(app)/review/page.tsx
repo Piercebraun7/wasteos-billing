@@ -5,6 +5,7 @@ import { requireAdmin } from "@/lib/auth";
 import { monthEnd, monthLabel, todayInPhoenix } from "@/lib/billing/dates";
 import { formatDate } from "@/lib/format";
 import { centsToInput, formatCents } from "@/lib/money";
+import { isServiceCategory, SERVICES } from "@/lib/services";
 import { approveAll, approveInvoice, generateDraftsAction, rejectDraft, setNextInvoiceNumber, updateDraftLine } from "./actions";
 
 type Line = { id: string; description: string; amount_cents: number; sort_order: number; contract_phase_id: string | null; line_type: string };
@@ -15,10 +16,13 @@ type Draft = {
   invoice_date: string;
   due_date: string;
   total_cents: number;
+  kind: string;
+  service_category: string | null;
+  memo: string | null;
   lines: Line[];
   account: { property: { id: string; name: string }; customer: { name: string }; contacts: { id: string }[] };
 };
-type Posted = { id: string; account_id: string; invoice_number: number | null; service_month: string; total_cents: number; origin: string; lines: Line[] };
+type Posted = { id: string; account_id: string; invoice_number: number | null; service_month: string; total_cents: number; origin: string; kind: string; service_category: string | null; lines: Line[] };
 
 export default async function ReviewPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
   const { supabase } = await requireAdmin();
@@ -30,7 +34,7 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
       .select("*, lines:invoice_lines!invoice_lines_invoice_id_fkey(*), account:billing_accounts(property:properties(id, name), customer:customers(name), contacts:billing_contacts(id))")
       .eq("status", "draft")
       .order("created_at"),
-    supabase.from("invoices").select("id, account_id, invoice_number, service_month, total_cents, origin, lines:invoice_lines!invoice_lines_invoice_id_fkey(*)").in("status", ["approved", "sent", "partially_paid", "paid"]),
+    supabase.from("invoices").select("id, account_id, invoice_number, service_month, total_cents, origin, kind, service_category, lines:invoice_lines!invoice_lines_invoice_id_fkey(*)").in("status", ["approved", "sent", "partially_paid", "paid"]),
     supabase.from("app_settings").select("next_invoice_number").maybeSingle(),
     supabase.from("source_discrepancies").select("property_id").is("resolved_at", null),
   ]);
@@ -48,14 +52,15 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
       <PageHeader
         eyebrow="Month end"
         title="Review queue"
-        description="Nothing reaches a customer or the ledger until it is approved here."
+        description="Nothing reaches a customer or the ledger until it is approved here. Approved invoices move to the Send page."
+        action={<Link href="/invoices/new" className={primaryButton}>Create invoice</Link>}
       />
       {saved && <Notice kind="ok">{saved}</Notice>}
       {errorMessage && <Notice kind="error">{errorMessage}</Notice>}
       {draftsRes.error && <Notice kind="error">Could not load drafts: {draftsRes.error.message}</Notice>}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Generate drafts" description={`Drafts one invoice per active account. Invoices are dated the last day of the service month (${formatDate(monthEnd(`${defaultMonth}-01`))} for ${monthLabel(`${defaultMonth}-01`)}).`}>
+        <Card title="Generate drafts" description={`Drafts one invoice for every property and service on the schedule that is switched on and owes something that month. Invoices are dated the last day of the service month (${formatDate(monthEnd(`${defaultMonth}-01`))} for ${monthLabel(`${defaultMonth}-01`)}).`}>
           <form action={generateDraftsAction} className="flex flex-wrap gap-2">
             <input type="month" name="month" defaultValue={defaultMonth} aria-label="Service month" className={`${inputClass} max-w-52`} />
             <SubmitButton className={primaryButton}>Generate drafts</SubmitButton>
@@ -85,12 +90,13 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
 
       {drafts.map((d) => {
         const previous = posted
-          .filter((p) => p.account_id === d.account_id && p.service_month < d.service_month)
+          .filter((p) => p.account_id === d.account_id && p.service_month < d.service_month && p.kind !== "ad_hoc" && (p.service_category ?? d.service_category) === d.service_category)
           .sort((a, b) => b.service_month.localeCompare(a.service_month))[0];
         const phases = new Set(d.lines.map((l) => l.contract_phase_id).filter(Boolean));
         const previousPhases = new Set((previous?.lines ?? []).map((l) => l.contract_phase_id).filter(Boolean));
         const flags: string[] = [];
-        if (!previous) flags.push("First invoice for this account");
+        const oneOff = d.kind === "ad_hoc";
+        if (!previous && !oneOff) flags.push("First invoice for this service");
         if (phases.size > 1 || (previous && previous.origin === "app" && [...phases].some((p) => !previousPhases.has(p)))) flags.push("Phase change this month");
         if (previous && Number(previous.total_cents) !== Number(d.total_cents)) flags.push("Amount differs from last month");
         if (d.account.contacts.length === 0) flags.push("Missing billing contact");
@@ -101,7 +107,10 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
           <section key={d.id} className="overflow-hidden rounded-3xl border border-line bg-white shadow-[0_1px_2px_rgb(16_24_40/0.04)]">
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line p-5 sm:p-7">
               <div>
-                <Eyebrow>{monthLabel(d.service_month)} · due {formatDate(d.due_date)}</Eyebrow>
+                <Eyebrow>
+                  <span className="mr-2 inline-block size-2 rounded-full align-middle" style={{ backgroundColor: SERVICES[isServiceCategory(d.service_category) ? d.service_category : "other"].hex }} aria-hidden />
+                  {SERVICES[isServiceCategory(d.service_category) ? d.service_category : "other"].label} · {oneOff ? `one-off, dated ${formatDate(d.invoice_date)}` : monthLabel(d.service_month)} · due {formatDate(d.due_date)}
+                </Eyebrow>
                 <h2 className="mt-1.5 text-xl font-semibold tracking-tight text-ink">
                   <Link href={`/accounts/${d.account_id}`} className="hover:underline">{d.account.property.name}</Link>
                 </h2>
@@ -154,7 +163,7 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
                     </p>
                   </div>
                 ) : (
-                  <p className="mt-3 text-sm text-mute">None in this app yet. QuickBooks history will appear here once it is imported.</p>
+                  <p className="mt-3 text-sm text-mute">{oneOff ? (d.memo ?? "A one-off invoice, so there is nothing to compare it with.") : "None in this app yet. QuickBooks history will appear here once it is imported."}</p>
                 )}
               </div>
             </div>

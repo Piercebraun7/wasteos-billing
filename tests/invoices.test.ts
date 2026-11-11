@@ -189,3 +189,48 @@ describe("replacing a schedule", () => {
     await expect(as(db, stranger, () => db.query("select public.replace_contract_phases(gen_random_uuid(), $1)", [phases]))).rejects.toThrow(/Only a billing admin/);
   });
 });
+
+describe("services and ad hoc invoices", () => {
+  const body = (extra: Record<string, unknown>) => JSON.stringify({ ...JSON.parse(draft("2026-11-01")), ...extra });
+
+  it("allows one scheduled invoice per service per month, and no more", async () => {
+    await as(db, admin, async () => {
+      await db.query("select public.create_draft_invoice($1)", [body({ service_category: "valet" })]);
+      await db.query("select public.create_draft_invoice($1)", [body({ service_category: "bulk" })]);
+    });
+    await expect(
+      as(db, admin, async () => {
+        await db.query("select public.create_draft_invoice($1)", [body({ service_category: "bulk" })]);
+        await db.query("select public.create_draft_invoice($1)", [body({ service_category: "bulk" })]);
+      }),
+    ).rejects.toThrow(/duplicate key/);
+  });
+
+  it("allows any number of ad hoc invoices, even before go-live, with a memo and a catalog item", async () => {
+    await as(db, admin, async () => {
+      const item = (await one<{ id: string }>("select id from public.service_items where name = 'Scheduled Bulk Waste Service'")).id;
+      const lines = [{ line_type: "per_event", description: "Scheduled Bulk Waste Service", quantity: 1.5, unit_price_cents: 35000, amount_cents: 52500, service_item_id: item }];
+      for (let i = 0; i < 3; i++) {
+        await db.query("select public.create_draft_invoice($1)", [
+          JSON.stringify({ account_id: account, service_month: "2026-09-01", invoice_date: "2026-09-10", due_date: "2026-10-10", subtotal_cents: 52500, tax_cents: 0, total_cents: 52500, kind: "ad_hoc", service_category: "bulk", memo: "Move-out cleanup", lines }),
+        ]);
+      }
+      const rows = (await db.query<{ kind: string; memo: string; item: string }>(
+        "select i.kind, i.memo, l.service_item_id as item from public.invoices i join public.invoice_lines l on l.invoice_id = i.id where i.kind = 'ad_hoc'")).rows;
+      expect(rows).toHaveLength(3);
+      expect(rows[0]).toMatchObject({ kind: "ad_hoc", memo: "Move-out cleanup", item });
+    });
+  });
+
+  it("starts with the products and services carried over from QuickBooks", async () => {
+    const rows = (await db.query<{ name: string; category: string; r: number | null }>("select name, category, default_rate_cents as r from public.service_items order by sort_order")).rows;
+    expect(rows).toHaveLength(11);
+    expect(rows.find((r) => r.name === "Scheduled Bulk Waste Service")).toMatchObject({ category: "bulk" });
+    expect(Number(rows.find((r) => r.name === "Resident Satisfaction Discount")!.r)).toBe(-2500);
+  });
+
+  it("gives every contract a service", async () => {
+    const c = await one<{ service_category: string }>("select service_category from public.contracts where account_id = $1", [account]);
+    expect(c.service_category).toBe("valet");
+  });
+});
