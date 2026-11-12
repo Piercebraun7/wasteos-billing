@@ -356,3 +356,65 @@ describe("resident refunds and the scheduled job", () => {
     await expect(as(db, stranger, () => db.query("select public.create_draft_invoice($1)", [draft("2026-11-01")]))).rejects.toThrow(/Only a billing admin/);
   });
 });
+
+describe("void and credit memo", () => {
+  const posted = async (month: string) => {
+    await db.query("update public.app_settings set next_invoice_number = coalesce(next_invoice_number, 2000)");
+    const id = (await one<{ id: string }>("select public.create_draft_invoice($1) as id", [draft(month, 300000)])).id;
+    await db.query("select public.approve_invoice($1)", [id]);
+    return id;
+  };
+
+  it("voiding takes the invoice off the balance, keeps it on file, and frees the month", async () => {
+    await as(db, admin, async () => {
+      const before = await balance();
+      const id = await posted("2027-05-01");
+      expect(await balance()).toBe(before + 300000);
+      await db.query("select public.void_invoice($1, $2)", [id, "Wrong unit count"]);
+      expect(await balance()).toBe(before);
+      const row = await one<{ status: string; void_reason: string; invoice_number: number }>("select status, void_reason, invoice_number from public.invoices where id = $1", [id]);
+      expect(row.status).toBe("void");
+      expect(row.void_reason).toBe("Wrong unit count");
+      expect(row.invoice_number).toBeTruthy();
+      // The same month can be drafted again.
+      expect(await posted("2027-05-01")).not.toBe(id);
+    });
+  });
+
+  it("refuses a void with no reason, a second void, and a void after a credit", async () => {
+    await as(db, admin, async () => {
+      const id = await posted("2027-06-01");
+      await db.exec("savepoint s");
+      await expect(db.query("select public.void_invoice($1, $2)", [id, "  "])).rejects.toThrow(/reason is required/);
+      await db.exec("rollback to savepoint s");
+      await db.query("select public.issue_credit_memo($1, $2, $3, $4)", [account, id, 5000, "Missed pickup"]);
+      await db.exec("savepoint s2");
+      await expect(db.query("select public.void_invoice($1, $2)", [id, "Oops"])).rejects.toThrow(/payment or credit against it/);
+      await db.exec("rollback to savepoint s2");
+    });
+  });
+
+  it("a credit memo lowers the balance, cannot exceed what is open, and closes the invoice when it covers the rest", async () => {
+    await as(db, admin, async () => {
+      const id = await posted("2027-07-01");
+      await db.query("update public.invoices set status = 'sent' where id = $1", [id]);
+      const before = await balance();
+      await db.query("select public.issue_credit_memo($1, $2, $3, $4)", [account, id, 100000, "Service credit"]);
+      expect(await balance()).toBe(before - 100000);
+      expect((await one<{ status: string }>("select status from public.invoices where id = $1", [id])).status).toBe("partially_paid");
+      await db.exec("savepoint s");
+      await expect(db.query("select public.issue_credit_memo($1, $2, $3, $4)", [account, id, 200001, "Too much"])).rejects.toThrow(/more than the \$2,000.00 still open/);
+      await db.exec("rollback to savepoint s");
+      await db.query("select public.issue_credit_memo($1, $2, $3, $4)", [account, id, 200000, "Rest"]);
+      expect((await one<{ status: string }>("select status from public.invoices where id = $1", [id])).status).toBe("paid");
+      // A credit with no invoice comes off the account as a whole.
+      await db.query("select public.issue_credit_memo($1, null, $2, $3)", [account, 2500, "Goodwill"]);
+      expect(await balance()).toBe(before - 302500);
+    });
+  });
+
+  it("is refused for anyone who is not a billing admin", async () => {
+    await expect(as(db, stranger, () => db.query("select public.void_invoice(gen_random_uuid(), 'x')"))).rejects.toThrow(/Only a billing admin/);
+    await expect(as(db, stranger, () => db.query("select public.issue_credit_memo(gen_random_uuid(), null, 100, 'x')"))).rejects.toThrow(/Only a billing admin/);
+  });
+});

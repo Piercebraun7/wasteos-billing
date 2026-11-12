@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import { approveOne } from "@/lib/billing/approve";
 import { addDays, monthEnd, monthStart } from "@/lib/billing/dates";
-import { lineAmountCents, parseSignedDollarsToCents } from "@/lib/money";
+import { lineAmountCents, parseDollarsToCents, parseSignedDollarsToCents } from "@/lib/money";
 import { isServiceCategory } from "@/lib/services";
 
 const text = (fd: FormData, key: string) => String(fd.get(key) ?? "").trim();
@@ -176,4 +176,33 @@ export async function removeItem(fd: FormData) {
   const { error } = await supabase.from("service_items").delete().eq("id", id);
   if (error) backToItems("error", error.message);
   backToItems("saved", `${name} removed.`);
+}
+
+function toInvoice(id: string, kind: "saved" | "error", message: string): never {
+  revalidatePath("/", "layout");
+  redirect(`/invoices/${id}?${kind}=${encodeURIComponent(message)}`);
+}
+
+/** Voids a posted invoice. It stays on file with its number; its amount comes off the balance. */
+export async function voidInvoice(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const id = text(fd, "invoice_id");
+  const reason = text(fd, "reason");
+  if (!reason) toInvoice(id, "error", "Enter the reason for voiding this invoice.");
+  const { error } = await supabase.rpc("void_invoice", { p_invoice_id: id, p_reason: reason });
+  if (error) toInvoice(id, "error", error.message);
+  toInvoice(id, "saved", "Invoice voided. Its amount has come off the balance, and the month can be drafted again.");
+}
+
+/** Issues a credit memo against an invoice. */
+export async function creditInvoice(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const id = text(fd, "invoice_id");
+  const amount = parseDollarsToCents(text(fd, "amount"));
+  const reason = text(fd, "reason");
+  if (amount === null || amount <= 0) toInvoice(id, "error", "Enter the credit amount, for example 50.00.");
+  if (!reason) toInvoice(id, "error", "Enter the reason for the credit.");
+  const { error } = await supabase.rpc("issue_credit_memo", { p_account_id: text(fd, "account_id"), p_invoice_id: id, p_amount_cents: amount, p_reason: reason });
+  if (error) toInvoice(id, "error", error.message);
+  toInvoice(id, "saved", "Credit applied. It has come off this invoice and the balance.");
 }
