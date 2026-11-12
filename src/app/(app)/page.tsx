@@ -18,9 +18,9 @@ export default async function HomePage() {
   const today = todayInPhoenix();
   const month = `${today.slice(0, 7)}-01`;
 
-  const [overview, open, applications, credits, drafts, approved, accounts, recurring, contacts] = await Promise.all([
+  const [overview, open, applications, credits, drafts, approved, accounts, recurring, contacts, reminded] = await Promise.all([
     supabase.from("account_overview").select("*"),
-    supabase.from("invoices").select("id, account_id, due_date, total_cents").in("status", ["approved", "sent", "partially_paid"]),
+    supabase.from("invoices").select("id, account_id, due_date, total_cents, status").in("status", ["approved", "sent", "partially_paid"]),
     supabase.from("payment_applications").select("invoice_id, amount_cents"),
     supabase.from("credit_memos").select("invoice_id, amount_cents"),
     supabase.from("invoices").select("id", { count: "exact", head: true }).eq("status", "draft"),
@@ -28,7 +28,10 @@ export default async function HomePage() {
     supabase.from("billing_accounts").select("id, contracts(status, billing_model, service_category, expected_monthly_cents, start_date, escalation_bps, phases:contract_phases(*), increases:rate_increases(*))").eq("status", "active"),
     supabase.from("recurring_invoices").select("service_category, start_month, lines").eq("status", "active"),
     supabase.from("billing_contacts").select("account_id, delivery, confirmed_at"),
+    supabase.from("email_sends").select("invoice_id").eq("kind", "reminder"),
   ]);
+  const remindedIds = new Set((reminded.data ?? []).map((r) => r.invoice_id as string));
+  let remindersReady = 0;
 
   // Who owes money.
   const rows = ((overview.data ?? []) as AccountRow[]).filter((r) => r.status === "active");
@@ -40,6 +43,7 @@ export default async function HomePage() {
   const overdueByAccount = new Map<string, number>();
   for (const inv of open.data ?? []) {
     const remaining = Number(inv.total_cents) - (reduced.get(inv.id) ?? 0);
+    if (remaining > 0 && inv.due_date <= today && inv.status !== "approved" && !remindedIds.has(inv.id)) remindersReady++;
     if (remaining > 0 && inv.due_date < today) overdueByAccount.set(inv.account_id, (overdueByAccount.get(inv.account_id) ?? 0) + remaining);
   }
   const overdue = [...overdueByAccount.values()].reduce((a, b) => a + b, 0);
@@ -81,6 +85,7 @@ export default async function HomePage() {
   const todo = [
     { n: drafts.count ?? 0, label: "to review", href: "/review" },
     { n: approved.count ?? 0, label: "approved and ready to send", href: "/send" },
+    { n: remindersReady, label: "payment reminders ready to send", href: "/invoices?view=unpaid" },
     { n: owing.filter((r) => overdueByAccount.has(r.account_id)).length, label: "properties with an overdue invoice", href: "/invoices?view=overdue" },
     { n: noticesDue, label: "rate increase notices due", href: "/increases" },
     { n: noContact, label: "properties with no one to send to", href: "/contacts" },

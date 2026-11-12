@@ -7,6 +7,7 @@ import { monthLabel } from "@/lib/billing/dates";
 import { BILLING_MODELS, EVENT_TYPES, formatDate, usesPhases } from "@/lib/format";
 import { bpsToInput, centsToInput, formatCents, lineAmountCents } from "@/lib/money";
 import {
+  addResidentRefund,
   removeRecurring,
   setRecurringStatus,
   updateBulkRate,
@@ -270,7 +271,10 @@ export default async function AccountPage({
       )}
 
       <Card title="Invoices" description="Scheduled and one-off invoices for this property.">
-        <Link href={`/invoices/new?account=${account.id}`} className={`${secondaryButton} mb-3`}>Create invoice</Link>
+        <div className="mb-3 flex flex-wrap gap-2">
+          <Link href={`/invoices/new?account=${account.id}`} className={secondaryButton}>Create invoice</Link>
+          <Link href={`/accounts/${account.id}/preview`} className={secondaryButton}>Preview customer view</Link>
+        </div>
         {(invoicesRes.data ?? []).length === 0 ? (
           <p className="text-sm text-mute">No invoices yet.</p>
         ) : (
@@ -532,6 +536,24 @@ export default async function AccountPage({
               </form>
             </div>
           </Card>
+          )}
+
+          {tab === "overview" && (
+            <Card title="Resident refund" description="A credit for a resident issue. It comes off this property's next monthly invoice as its own line.">
+              <form action={addResidentRefund} className="flex flex-wrap items-end gap-2">
+                {hidden}
+                <Field label="Amount">
+                  <input name="amount" inputMode="decimal" placeholder="25.00" className={`${inputClass} w-32 text-right tabular-nums`} />
+                </Field>
+                <Field label="Unit number (optional)">
+                  <input name="unit" placeholder="1006" className={`${inputClass} w-40`} />
+                </Field>
+                <Field label="Note (optional)" className="min-w-48 flex-1">
+                  <input name="note" placeholder="What happened" className={inputClass} />
+                </Field>
+                <SubmitButton className={primaryButton}>Add refund</SubmitButton>
+              </form>
+            </Card>
           )}
 
           {tab === "overview" && (

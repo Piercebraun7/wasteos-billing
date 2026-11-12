@@ -214,6 +214,24 @@ describe("per-event lines", () => {
     expect(lines.map((l) => [l.unit_price_cents, l.amount_cents])).toEqual([[40000, 60000], [12500, 12500]]);
   });
 
+  it("a resident refund is a negative line that names the unit", () => {
+    const { lines } = eventLines({
+      events: [{ ...ev("1", "2026-11-06", "resident_refund"), rate_cents: -2500, description: "Unit 1006" }],
+      rates, serviceMonth: "2026-11-01",
+    });
+    expect(lines[0]).toMatchObject({ line_type: "adjustment", amount_cents: -2500, description: "Resident refund, Nov 6: Unit 1006" });
+  });
+
+  it("an unbilled refund from an earlier month carries forward; other work does not", () => {
+    const events = [
+      { ...ev("r", "2026-10-28", "resident_refund"), rate_cents: -2500, description: "Unit 1006" },
+      ev("old", "2026-10-28", "bulk_pickup"),
+    ];
+    const { lines } = eventLines({ events, rates, serviceMonth: "2026-11-01", carryForward: ["resident_refund"] });
+    expect(lines.map((l) => [l.billable_event_id, l.amount_cents])).toEqual([["r", -2500]]);
+    expect(eventLines({ events, rates, serviceMonth: "2026-11-01" }).lines).toEqual([]);
+  });
+
   it("handles fractional quantities without floating point drift", () => {
     const { lines } = eventLines({ events: [ev("1", "2026-11-03", "bulk_pickup", 1.5)], rates, serviceMonth: "2026-11-01" });
     expect(lines[0].amount_cents).toBe(52500);

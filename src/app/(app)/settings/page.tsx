@@ -10,6 +10,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const { saved, error } = await searchParams;
   const { data } = await supabase.from("app_settings").select("*").maybeSingle();
   const connected = emailIsConnected();
+  const automated = Boolean(process.env.CRON_SECRET && process.env.SUPABASE_SECRET_KEY);
   const row = (label: string, value: string, good?: boolean) => (
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line py-3 first:border-t-0">
       <span className="text-[15px] text-slate-600">{label}</span>
@@ -45,6 +46,15 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           {row("Checks mailed to", data?.remittance_address ?? "")}
           {row("Default terms", `Net ${data?.default_net_days ?? 30}`)}
           {row("Late fee", "3% monthly, compounding")}
+        </Card>
+
+        <Card title="Automation">
+          {row("Monthly drafts", automated ? `Drafted ${data?.draft_days_before ?? 7} days before the 1st` : "Not switched on yet", automated)}
+          {row("Payment reminders", "Drafted on the due date, sent when you approve")}
+          {row("Emails signed", data?.email_signoff ?? "Kaizen Development Team")}
+          <p className="mt-2 text-sm leading-relaxed text-mute">
+            Reminders can only be sent automatically once payments are pulled in from QuickBooks. Until then the app cannot tell that a check has arrived, so each reminder waits for you.
+          </p>
         </Card>
 
         <Card title="QuickBooks">

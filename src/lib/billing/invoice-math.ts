@@ -16,7 +16,7 @@ export type Phase = {
 };
 
 export type DraftLine = {
-  line_type: "valet" | "flat" | "per_event" | "tax";
+  line_type: "valet" | "flat" | "per_event" | "tax" | "adjustment";
   description: string;
   quantity: number;
   unit_price_cents: number;
@@ -140,6 +140,7 @@ const EVENT_NAME: Record<string, string> = {
   trash_room_visit: "Trash room visit",
   as_needed: "As-needed job",
   other: "Other work",
+  resident_refund: "Resident refund",
 };
 
 /** The rate for an event: its own price if it has one, then an exact window match on the contract, then the contract rate with no window. */
@@ -156,7 +157,13 @@ export function rateFor(event: BillableEvent, rates: EventRate[]): number | null
  * Per-event charges dated within the service month. An event with no rate on
  * the contract is returned as held, never billed at a guessed rate.
  */
-export function eventLines(input: { events: BillableEvent[]; rates: EventRate[]; serviceMonth: ISODate }): {
+export function eventLines(input: {
+  events: BillableEvent[];
+  rates: EventRate[];
+  serviceMonth: ISODate;
+  /** Event types that also carry forward from earlier months when they were not yet billed (resident refunds). */
+  carryForward?: string[];
+}): {
   lines: DraftLine[];
   held: BillableEvent[];
 } {
@@ -165,7 +172,7 @@ export function eventLines(input: { events: BillableEvent[]; rates: EventRate[];
   const lines: DraftLine[] = [];
   const held: BillableEvent[] = [];
   const inMonth = input.events
-    .filter((e) => e.event_date >= first && e.event_date <= last)
+    .filter((e) => e.event_date <= last && (e.event_date >= first || (input.carryForward ?? []).includes(e.event_type)))
     .sort((a, b) => a.event_date.localeCompare(b.event_date));
   for (const event of inMonth) {
     const rate = rateFor(event, input.rates);
@@ -178,12 +185,14 @@ export function eventLines(input: { events: BillableEvent[]; rates: EventRate[];
     const name = EVENT_NAME[event.event_type] ?? event.event_type;
     const window = event.time_window ? ` (${event.time_window})` : "";
     const qty = event.quantity === 1 ? "" : `, ${event.quantity} at ${formatCents(rate)}`;
+    // A refund carries a negative price: round the size, then put the sign back.
+    const size = divideRoundHalfUp(Math.abs(rate) * hundredths, 100);
     lines.push({
-      line_type: "per_event",
+      line_type: rate < 0 ? "adjustment" : "per_event",
       description: `${name}${window}, ${shortDay(event.event_date)}${qty}${event.description ? `: ${event.description}` : ""}`,
       quantity: event.quantity,
       unit_price_cents: rate,
-      amount_cents: divideRoundHalfUp(rate * hundredths, 100),
+      amount_cents: rate < 0 ? -size : size,
       contract_phase_id: null,
       billable_event_id: event.id,
       period_start: event.event_date,

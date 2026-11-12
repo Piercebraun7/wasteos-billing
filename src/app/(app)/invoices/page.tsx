@@ -1,11 +1,15 @@
 import Link from "next/link";
 import { InvoiceTabs } from "@/components/section-tabs";
-import { Empty, Notice, PageHeader, Stat } from "@/components/ui";
+import { SubmitButton } from "@/components/submit-button";
+import { Empty, inputClass, Notice, PageHeader, primaryButton, Stat } from "@/components/ui";
+import { reminderEmail } from "@/lib/email/reminder-email";
+import { emailIsConnected } from "@/lib/email/resend";
 import { requireAdmin } from "@/lib/auth";
 import { monthLabel, todayInPhoenix } from "@/lib/billing/dates";
 import { formatDate } from "@/lib/format";
 import { formatCents } from "@/lib/money";
 import { isServiceCategory, SERVICES } from "@/lib/services";
+import { dismissReminder, sendReminder } from "../send/actions";
 
 type Row = {
   id: string;
@@ -24,13 +28,14 @@ type Row = {
 const VIEWS = ["unpaid", "overdue", "paid", "all"] as const;
 type View = (typeof VIEWS)[number];
 
-export default async function InvoicesPage({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
+export default async function InvoicesPage({ searchParams }: { searchParams: Promise<{ view?: string; saved?: string; error?: string }> }) {
   const { supabase } = await requireAdmin();
-  const wanted = (await searchParams).view;
+  const query = await searchParams;
+  const wanted = query.view;
   const view: View = VIEWS.includes(wanted as View) ? (wanted as View) : "unpaid";
   const today = todayInPhoenix();
 
-  const [invoicesRes, applications, credits] = await Promise.all([
+  const [invoicesRes, applications, credits, reminded, settings, overview] = await Promise.all([
     supabase
       .from("invoices")
       .select("id, account_id, invoice_number, service_month, invoice_date, due_date, status, kind, service_category, total_cents, account:billing_accounts(property:properties(name), customer:customers(name))")
@@ -38,7 +43,13 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Pro
       .order("invoice_date", { ascending: false }),
     supabase.from("payment_applications").select("invoice_id, amount_cents"),
     supabase.from("credit_memos").select("invoice_id, amount_cents"),
+    supabase.from("email_sends").select("invoice_id").eq("kind", "reminder"),
+    supabase.from("app_settings").select("email_reply_to, email_signoff").maybeSingle(),
+    supabase.from("account_overview").select("account_id, balance_cents"),
   ]);
+  const alreadyReminded = new Set((reminded.data ?? []).map((r) => r.invoice_id as string));
+  const balances = new Map((overview.data ?? []).map((o) => [o.account_id as string, Number(o.balance_cents)]));
+  const connected = emailIsConnected();
   const reduced = new Map<string, number>();
   for (const r of [...(applications.data ?? []), ...(credits.data ?? [])]) {
     if (r.invoice_id) reduced.set(r.invoice_id, (reduced.get(r.invoice_id) ?? 0) + Number(r.amount_cents));
@@ -50,6 +61,8 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Pro
     return { ...r, remaining, overdue, state };
   });
   const open = rows.filter((r) => r.remaining > 0);
+  // Sent, reached its due date, still unpaid here, and no reminder decided yet.
+  const reminders = open.filter((r) => ["sent", "partially_paid"].includes(r.status) && r.due_date <= today && !alreadyReminded.has(r.id));
   const shown = rows.filter((r) =>
     view === "all" ? true : view === "unpaid" ? r.remaining > 0 : view === "overdue" ? r.overdue : r.state === "Paid",
   );
@@ -75,6 +88,57 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Pro
         <Stat label="Overdue" value={formatCents(overdueTotal)} detail={`${open.filter((r) => r.overdue).length} past the due date`} />
         <Stat label="Paid in full" value={String(rows.filter((r) => r.state === "Paid").length)} detail="Invoices" />
       </div>
+
+      {query.saved && <Notice kind="ok">{query.saved}</Notice>}
+      {query.error && <Notice kind="error">{query.error}</Notice>}
+
+      {view !== "paid" && reminders.length > 0 && (
+        <section className="rounded-3xl border border-amber-200 bg-amber-50/60 p-5 sm:p-6">
+          <h2 className="text-lg font-semibold tracking-tight text-ink">
+            {reminders.length} reminder{reminders.length === 1 ? "" : "s"} ready
+          </h2>
+          <p className="mt-1 text-sm text-slate-600">
+            These invoices reached their due date and show as unpaid here. Each reminder is drafted and waits for you. Check that the payment has not arrived before sending.
+          </p>
+          <ul className="mt-4 space-y-3">
+            {reminders.map((r) => {
+              const email = reminderEmail({
+                propertyName: r.account.property.name,
+                invoiceNumber: Number(r.invoice_number),
+                remainingCents: r.remaining,
+                dueDate: r.due_date,
+                balanceCents: balances.get(r.account_id) ?? r.remaining,
+                replyTo: settings.data?.email_reply_to ?? null,
+                signoff: settings.data?.email_signoff ?? "Kaizen Development Team",
+              });
+              return (
+                <li key={r.id} className="rounded-2xl border border-line bg-white p-4">
+                  <form action={sendReminder}>
+                    <input type="hidden" name="invoice_id" value={r.id} />
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="font-medium text-ink">
+                        Invoice {r.invoice_number} · {r.account.property.name}
+                        <span className="font-normal text-mute"> · {formatCents(r.remaining)} · was due {formatDate(r.due_date)}</span>
+                      </p>
+                      <div className="flex gap-2">
+                        {connected ? <SubmitButton className={primaryButton}>Send reminder</SubmitButton> : <span className="self-center text-sm text-mute">Email not connected</span>}
+                        <button formAction={dismissReminder} className="h-11 rounded-full px-4 text-sm font-medium text-slate-600 hover:bg-slate-100">Not needed</button>
+                      </div>
+                    </div>
+                    <details className="mt-3 rounded-2xl border border-line">
+                      <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-ink">Read or edit the reminder</summary>
+                      <div className="space-y-3 border-t border-line p-4">
+                        <input name="subject" defaultValue={email.subject} aria-label="Subject" className={inputClass} />
+                        <textarea name="body" defaultValue={email.text} rows={14} aria-label="Message" className={`${inputClass} h-auto py-3 leading-relaxed`} />
+                      </div>
+                    </details>
+                  </form>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       {view !== "paid" && (
         <div className="flex flex-wrap gap-4 text-sm font-medium">

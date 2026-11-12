@@ -147,3 +147,72 @@ export async function sendAll(fd: FormData) {
   }
   back(problems.length ? "error" : "saved", `${sent} email${sent === 1 ? "" : "s"} sent.${problems.length ? ` Not sent: ${problems.join(" ")}` : ""}`, service);
 }
+
+/**
+ * Sends the reminder for one invoice that reached its due date unpaid. The
+ * wording shown on the page (edited or not) is what goes out.
+ */
+export async function sendReminder(fd: FormData) {
+  const { supabase, user } = await requireAdmin();
+  const invoiceId = String(fd.get("invoice_id") ?? "");
+  const done = (kind: "saved" | "error", message: string): never => {
+    revalidatePath("/invoices");
+    revalidatePath("/");
+    redirect(`/invoices?view=unpaid&${kind}=${encodeURIComponent(message)}`);
+  };
+  const subject = String(fd.get("subject") ?? "").trim();
+  const text = String(fd.get("body") ?? "").trim();
+  if (!subject || !text) done("error", "The reminder needs a subject and a message.");
+
+  const { data: invoice, error } = await supabase
+    .from("invoices")
+    .select("id, account_id, invoice_number, status, account:billing_accounts(property:properties(name), contacts:billing_contacts(email, is_active, delivery))")
+    .eq("id", invoiceId)
+    .single();
+  if (error) done("error", error.message);
+  if (!["sent", "partially_paid"].includes(invoice!.status)) done("error", "A reminder can only go out for an invoice that has been sent and is not paid.");
+  const account = invoice!.account as unknown as { property: { name: string }; contacts: { email: string; is_active: boolean; delivery: string }[] };
+  const contacts = account.contacts.filter((c) => c.is_active);
+  const to = contacts.filter((c) => c.delivery !== "cc").map((c) => c.email.toLowerCase());
+  const cc = contacts.filter((c) => c.delivery === "cc").map((c) => c.email.toLowerCase());
+  if (to.length === 0) done("error", `${account.property.name} has no one in the To line. Add a contact first.`);
+
+  const stored = await supabase.storage.from("invoices").download(pdfPath(invoice!.account_id, invoiceId));
+  let content: Buffer;
+  if (stored.data) content = Buffer.from(await stored.data.arrayBuffer());
+  else {
+    const doc = await buildInvoiceDocument(supabase, invoiceId);
+    if (!doc) done("error", "The invoice could not be prepared.");
+    content = await renderToBuffer(<InvoicePdf doc={doc!} />);
+  }
+  const { data: settings } = await supabase.from("app_settings").select("email_sender, email_reply_to").maybeSingle();
+  const sent = await sendEmail({
+    from: settings?.email_sender ?? "Kaizen Waste <invoices@kaizen-waste.com>",
+    to,
+    cc,
+    replyTo: settings?.email_reply_to ?? user.email,
+    subject,
+    text,
+    attachments: [{ filename: `Kaizen Waste Invoice ${invoice!.invoice_number}.pdf`, content }],
+  });
+  if ("error" in sent) done("error", `${account.property.name}: ${sent.error}`);
+  const log = await supabase.from("email_sends").insert({
+    account_id: invoice!.account_id, invoice_id: invoiceId, kind: "reminder", recipients: to, cc, subject,
+    sent_at: new Date().toISOString(), provider_message_id: (sent as { id: string }).id,
+  });
+  if (log.error) done("error", `The reminder was sent, but recording it failed: ${log.error.message}`);
+  done("saved", `Reminder sent for invoice ${invoice!.invoice_number}.`);
+}
+
+/** Notes that no reminder is needed for an invoice (for example the check is already in hand). */
+export async function dismissReminder(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const invoiceId = String(fd.get("invoice_id") ?? "");
+  const { data: invoice } = await supabase.from("invoices").select("account_id, invoice_number").eq("id", invoiceId).single();
+  const { error } = await supabase.from("email_sends").insert({
+    account_id: invoice?.account_id, invoice_id: invoiceId, kind: "reminder", recipients: [], subject: "No reminder sent: dismissed", sent_at: new Date().toISOString(),
+  });
+  revalidatePath("/invoices");
+  revalidatePath("/");
+  redirect(`/invoices?view=unpaid&${error ? "error" : "saved"}=${encodeURIComponent(error ? error.message : `No reminder will be sent for invoice ${invoice?.invoice_number}.`)}`);
+}

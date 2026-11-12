@@ -224,7 +224,7 @@ describe("services and ad hoc invoices", () => {
 
   it("starts with the products and services carried over from QuickBooks", async () => {
     const rows = (await db.query<{ name: string; category: string; r: number | null }>("select name, category, default_rate_cents as r from public.service_items order by sort_order")).rows;
-    expect(rows).toHaveLength(11);
+    expect(rows).toHaveLength(12); // eleven from QuickBooks, plus Resident Refund
     expect(rows.find((r) => r.name === "Scheduled Bulk Waste Service")).toMatchObject({ category: "bulk" });
     expect(Number(rows.find((r) => r.name === "Resident Satisfaction Discount")!.r)).toBe(-2500);
   });
@@ -327,5 +327,32 @@ describe("recurring invoices", () => {
       expect((await one<{ r: string }>("select public.delete_billing_account($1) as r", [acct])).r).toBe("deleted");
       expect(Number((await one<{ n: number }>("select count(*) n from public.recurring_invoices where account_id = $1", [acct])).n)).toBe(0);
     });
+  });
+});
+
+describe("resident refunds and the scheduled job", () => {
+  it("allows a negative price only on a resident refund", async () => {
+    await as(db, admin, async () => {
+      await db.query("insert into public.billable_events (account_id, event_date, event_type, rate_cents, description) values ($1, '2026-11-06', 'resident_refund', -2500, 'Unit 1006')", [account]);
+    });
+    await expect(
+      as(db, admin, () => db.query("insert into public.billable_events (account_id, event_date, event_type, rate_cents) values ($1, '2026-11-06', 'bulk_pickup', -2500)", [account])),
+    ).rejects.toThrow(/check constraint/);
+  });
+
+  it("lets the scheduled job, running with the service key, draft invoices", async () => {
+    await db.exec("begin");
+    try {
+      await db.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify({ role: "service_role" })]);
+      await db.exec("set local role service_role");
+      const id = (await one<{ id: string }>("select public.create_draft_invoice($1) as id", [draft("2026-11-01")])).id;
+      expect(id).toBeTruthy();
+    } finally {
+      await db.exec("rollback");
+    }
+  });
+
+  it("still refuses someone signed in without the admin tag", async () => {
+    await expect(as(db, stranger, () => db.query("select public.create_draft_invoice($1)", [draft("2026-11-01")]))).rejects.toThrow(/Only a billing admin/);
   });
 });

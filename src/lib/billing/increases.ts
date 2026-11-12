@@ -117,7 +117,7 @@ export function noticeEmail(row: IncreaseRow, replyTo: string | null): { subject
       replyTo ? `If you have any questions, reply to this email or write to ${replyTo}.` : "If you have any questions, reply to this email.",
       "",
       "Thank you for your business,",
-      "Kaizen Waste",
+      "Kaizen Development Team",
     ].join("\n"),
   };
 }

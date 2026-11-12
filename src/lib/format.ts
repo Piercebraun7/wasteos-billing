@@ -21,6 +21,7 @@ export const EVENT_TYPES: Record<string, string> = {
   trash_room_visit: "Trash room visit",
   as_needed: "As-needed job",
   other: "Other",
+  resident_refund: "Resident refund",
 };
 
 /** Models billed from monthly phases. The others are billed from events only. */

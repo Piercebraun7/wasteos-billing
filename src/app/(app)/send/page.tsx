@@ -41,6 +41,7 @@ export default async function SendPage({ searchParams }: { searchParams: Promise
   // One row per email in the log, even when it carried several invoices.
   const seen = new Set<string>();
   const log = ((logRes.data ?? []) as Log[]).filter((l) => {
+    if (l.recipients.length === 0) return false; // a note that no email was needed, not an email
     const key = l.provider_message_id ?? l.id;
     if (seen.has(key)) return false;
     seen.add(key);

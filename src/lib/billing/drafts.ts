@@ -45,6 +45,8 @@ const isEventBased = (model: string) => model === "per_event" || model === "as_n
 
 /** The service that bills a piece of logged work: a per-job service with a rate first, then any service with a rate. */
 function ownerOf(event: BillableEvent, contracts: ContractRow[]): ContractRow | undefined {
+  // A resident refund comes off the monthly service invoice, never a bulk one.
+  if (event.event_type === "resident_refund") return contracts.find((c) => !isEventBased(c.billing_model)) ?? contracts[0];
   return (
     contracts.find((c) => isEventBased(c.billing_model) && rateFor(event, c.event_rates) !== null) ??
     contracts.find((c) => rateFor(event, c.event_rates) !== null)
@@ -67,7 +69,8 @@ export async function generateDrafts(supabase: SupabaseClient, serviceMonth: ISO
       .select("id, go_live_service_month, property:properties(name), contracts(*, phases:contract_phases(*), event_rates:contract_event_rates(*), increases:rate_increases(*))")
       .eq("status", "active"),
     supabase.from("invoices").select("account_id, service_category").eq("service_month", first).eq("origin", "app").eq("kind", "scheduled").neq("status", "void"),
-    supabase.from("billable_events").select("*").eq("status", "approved").gte("event_date", first).lte("event_date", last),
+    // This month's logged work, plus any resident refund from an earlier month that has not been billed yet.
+    supabase.from("billable_events").select("*").eq("status", "approved").lte("event_date", last).or(`event_date.gte.${first},event_type.eq.resident_refund`),
   ]);
   if (accounts.error) throw new Error(accounts.error.message);
   if (existing.error) throw new Error(existing.error.message);
@@ -87,12 +90,22 @@ export async function generateDrafts(supabase: SupabaseClient, serviceMonth: ISO
   const alreadyInvoiced = new Set((existing.data ?? []).map((r) => `${r.account_id}:${r.service_category ?? ""}`));
   const rows = (accounts.data ?? []) as unknown as AccountRow[];
 
+  // Anything already on a live invoice is never billed a second time.
+  const eventIds = (events.data ?? []).map((e) => e.id as string);
+  const onInvoice = eventIds.length
+    ? await supabase.from("invoice_lines").select("billable_event_id, invoice:invoices!invoice_lines_invoice_id_fkey(status)").in("billable_event_id", eventIds)
+    : { data: [], error: null };
+  if (onInvoice.error) throw new Error(onInvoice.error.message);
+  const alreadyBilled = new Set(
+    (onInvoice.data ?? []).filter((l) => (l.invoice as unknown as { status: string } | null)?.status !== "void").map((l) => l.billable_event_id as string),
+  );
+
   for (const account of rows.sort((a, b) => a.property.name.localeCompare(b.property.name))) {
     const active = account.contracts.filter((c) => c.status === "active").sort((a, b) => a.created_at.localeCompare(b.created_at));
     if (active.length === 0) continue; // Billing is off: not an exception, just not billed.
 
     const accountEvents = ((events.data ?? []) as (BillableEvent & { account_id: string })[])
-      .filter((e) => e.account_id === account.id)
+      .filter((e) => e.account_id === account.id && !alreadyBilled.has(e.id))
       .map((e) => ({ ...e, quantity: Number(e.quantity) }));
     // Each piece of logged work is billed by the first service that has a rate for it.
     const owner = new Map<string, string>();
@@ -123,10 +136,14 @@ export async function generateDrafts(supabase: SupabaseClient, serviceMonth: ISO
       // An annual increase is billed only once it has been confirmed.
       const recurring = recurringLines({ model: contract.billing_model, phases: billingPhases(contract, last), serviceMonth: first, contractStart: contract.start_date });
       const mine = accountEvents.filter((e) => owner.get(e.id) === contract.id);
-      const perEvent = eventLines({ events: mine, rates: contract.event_rates, serviceMonth: first });
+      const perEvent = eventLines({ events: mine, rates: contract.event_rates, serviceMonth: first, carryForward: ["resident_refund"] });
       const charges = [...recurring, ...perEvent.lines];
       const owed = charges.reduce((sum, l) => sum + l.amount_cents, 0);
       if (charges.length === 0 || owed === 0) continue; // Nothing owed this month (for example a free month).
+      if (owed < 0) {
+        skip("Its refunds this month are larger than its charges. Reduce the refund or issue it another way.");
+        continue;
+      }
 
       const totals = applyTax(charges, { enabled: contract.tax_enabled, rateBps: contract.tax_rate_bps, basis: contract.quoted_basis });
       const dates = invoiceDates(first, contract.net_days);

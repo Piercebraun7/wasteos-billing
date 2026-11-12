@@ -646,3 +646,49 @@ export async function removeRecurring(fd: FormData) {
   revalidatePath("/schedule");
   back(accountId, "saved", "Recurring invoice removed.", tabOf(fd));
 }
+
+/**
+ * Logs a resident refund: a credit that comes off the property's next monthly
+ * invoice. If this month's draft already exists, the credit is added to it.
+ */
+export async function addResidentRefund(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const accountId = text(fd, "account_id");
+  const amount = parseDollarsToCents(text(fd, "amount"));
+  const unit = text(fd, "unit");
+  const note = text(fd, "note");
+  if (amount === null || amount === 0) back(accountId, "error", "Enter the refund amount, for example 25.00.", tabOf(fd));
+  const today = todayInPhoenix();
+  const description = [unit ? `Unit ${unit}` : "", note].filter(Boolean).join(", ") || null;
+  const created = await supabase
+    .from("billable_events")
+    .insert({ account_id: accountId, event_date: today, event_type: "resident_refund", quantity: 1, rate_cents: -amount!, description, source_reference: "Resident refund", status: "approved" })
+    .select("id")
+    .single();
+  if (created.error) back(accountId, "error", created.error.message, tabOf(fd));
+
+  // This month's monthly draft, if it has already been made, gets the credit straight away.
+  const month = `${today.slice(0, 7)}-01`;
+  const draft = await supabase.from("invoices").select("id, total_cents").eq("account_id", accountId).eq("service_month", month).eq("kind", "scheduled").eq("status", "draft").limit(1);
+  const target = draft.data?.[0];
+  if (target && Number(target.total_cents) > amount!) {
+    const line = await supabase.from("invoice_lines").insert({
+      invoice_id: target.id,
+      line_type: "adjustment",
+      description: `Resident refund${description ? `: ${description}` : ""}`,
+      quantity: 1,
+      unit_price_cents: -amount!,
+      amount_cents: -amount!,
+      billable_event_id: created.data!.id,
+      period_start: today,
+      period_end: today,
+      sort_order: 900,
+    });
+    if (line.error) back(accountId, "error", line.error.message, tabOf(fd));
+    const recalc = await supabase.rpc("recalculate_draft", { p_invoice_id: target.id });
+    if (recalc.error) back(accountId, "error", recalc.error.message, tabOf(fd));
+    revalidatePath("/review");
+    back(accountId, "saved", "Refund added to this month's draft invoice.", tabOf(fd));
+  }
+  back(accountId, "saved", "Refund saved. It will come off the next monthly invoice.", tabOf(fd));
+}

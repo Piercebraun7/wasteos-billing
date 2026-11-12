@@ -29,7 +29,7 @@ export function invoiceEmail(input: { propertyName: string; invoices: EmailInvoi
     input.replyTo ? `Questions: reply to this email or write to ${input.replyTo}.` : "Questions: reply to this email.",
     "",
     "Thank you,",
-    "Kaizen Waste",
+    "Kaizen Development Team",
   ].join("\n");
   return { subject, text };
 }
