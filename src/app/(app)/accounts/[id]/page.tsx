@@ -75,7 +75,7 @@ type Account = {
   };
   customer: { id: string; name: string; is_ach_payer: boolean };
   owner: { id: string; legal_name: string } | null;
-  contacts: { id: string; name: string; email: string; role: string | null; created_at: string }[];
+  contacts: { id: string; name: string; email: string; role: string | null; delivery: string; created_at: string }[];
   contracts: Contract[];
 };
 
@@ -118,7 +118,7 @@ export default async function AccountPage({
          property:properties(*),
          customer:customers(id, name, is_ach_payer),
          owner:owner_entities(id, legal_name),
-         contacts:billing_contacts(id, name, email, role, created_at),
+         contacts:billing_contacts(id, name, email, role, delivery, created_at),
          contracts(*, late_fee_template:late_fee_templates(name, confirmed_at),
            phases:contract_phases(*), event_rates:contract_event_rates(*))`,
       )
@@ -299,17 +299,21 @@ export default async function AccountPage({
 
       {tab === "contacts" && (
         <>
-      <Card title="Points of contact" description="The people at this property who receive its invoices by email." needed={need.contact}>
+      <Card title="Points of contact" description="Everyone who receives this property's invoices by email. Add as many To and CC addresses as you need." needed={need.contact}>
         <div className="space-y-3">
           {contacts.length === 0 && <p className="text-sm text-mute">No contacts yet. Invoices cannot be sent until there is at least one.</p>}
           {contacts.map((c) => (
             <div key={c.id} className="flex flex-wrap items-end gap-2">
-              <form action={saveContact} className="grid flex-1 gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
+              <form action={saveContact} className="grid flex-1 gap-2 sm:grid-cols-[1fr_1fr_1fr_5rem_auto]">
                 {hidden}
                 <input type="hidden" name="contact_id" value={c.id} />
                 <input name="name" defaultValue={c.name} aria-label="Contact name" className={inputClass} />
                 <input name="email" type="email" defaultValue={c.email} aria-label="Contact email" className={inputClass} />
                 <input name="role" defaultValue={c.role ?? ""} placeholder="Role" aria-label="Contact role" className={inputClass} />
+                <select name="delivery" defaultValue={c.delivery === "cc" ? "cc" : "to"} aria-label="To or CC" className={inputClass}>
+                  <option value="to">To</option>
+                  <option value="cc">CC</option>
+                </select>
                 <SubmitButton className={secondaryButton}>Save</SubmitButton>
               </form>
               <form action={removeContact}>
@@ -319,11 +323,15 @@ export default async function AccountPage({
               </form>
             </div>
           ))}
-          <form action={saveContact} className="grid gap-2 border-t border-line pt-4 sm:grid-cols-[1fr_1fr_1fr_auto]">
+          <form action={saveContact} className="grid gap-2 border-t border-line pt-4 sm:grid-cols-[1fr_1fr_1fr_5rem_auto]">
             {hidden}
             <input name="name" placeholder="Name" aria-label="New contact name" className={inputClass} />
             <input name="email" type="email" placeholder="Email" aria-label="New contact email" className={inputClass} />
             <input name="role" placeholder="Role" aria-label="New contact role" className={inputClass} />
+            <select name="delivery" defaultValue="to" aria-label="To or CC" className={inputClass}>
+              <option value="to">To</option>
+              <option value="cc">CC</option>
+            </select>
             <SubmitButton className={primaryButton}>Add contact</SubmitButton>
           </form>
         </div>

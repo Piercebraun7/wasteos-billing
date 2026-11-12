@@ -9,10 +9,10 @@ import { confirmContacts, removeContact, saveContact } from "../accounts/actions
 type Contact = { id: string; name: string; email: string; role: string | null; delivery: string; confirmed_at: string | null; source: string | null; created_at: string };
 type Row = { id: string; property: { name: string }; customer: { name: string }; contacts: Contact[] };
 
-function AddForm({ accountId, delivery }: { accountId: string; delivery: "to" | "cc" }) {
+function AddForm({ accountId, delivery, another }: { accountId: string; delivery: "to" | "cc"; another: boolean }) {
   return (
     <details className="group">
-      <summary className={`${secondaryButton} cursor-pointer list-none`}>{delivery === "to" ? "Add contact" : "Add CC"}</summary>
+      <summary className={`${secondaryButton} cursor-pointer list-none`}>{delivery === "to" ? (another ? "Add another contact" : "Add contact") : another ? "Add another CC" : "Add CC"}</summary>
       <form action={saveContact} className="mt-3 grid gap-2 rounded-2xl border border-line bg-slate-50/70 p-3 sm:grid-cols-[1fr_1.3fr_auto]">
         <input type="hidden" name="account_id" value={accountId} />
         <input type="hidden" name="return_to" value="contacts" />
@@ -128,8 +128,8 @@ export default async function ContactsPage({ searchParams }: { searchParams: Pro
               </ul>
 
               <div className="mt-3 flex flex-wrap items-start gap-2 border-t border-line pt-4">
-                <AddForm accountId={r.id} delivery="to" />
-                <AddForm accountId={r.id} delivery="cc" />
+                <AddForm accountId={r.id} delivery="to" another={to.length > 0} />
+                <AddForm accountId={r.id} delivery="cc" another={r.contacts.length > to.length} />
               </div>
             </section>
           );
