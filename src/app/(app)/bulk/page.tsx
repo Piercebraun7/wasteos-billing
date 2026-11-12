@@ -6,6 +6,7 @@ import { firstWeekdayOfMonth, monthEnd, monthLabel, parts, todayInPhoenix, iso }
 import { formatDate } from "@/lib/format";
 import { centsToInput, formatCents, lineAmountCents } from "@/lib/money";
 import { SERVICES } from "@/lib/services";
+import { InvoiceTabs } from "@/components/section-tabs";
 import { removePickup, saveBulkRun } from "./actions";
 
 type Contract = { status: string; service_category: string | null; expected_monthly_cents: number | null; event_rates: { event_type: string; rate_cents: number }[] };
@@ -68,10 +69,11 @@ export default async function BulkPage({ searchParams }: { searchParams: Promise
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Monthly bulk run"
-        title="Bulk trash"
-        description="Every property with bulk trash, prefilled with its usual loads and normal price. Change the day, loads, or price for anything that was different this month, then save. Each pickup becomes a draft invoice dated the day we were there."
+        eyebrow="Bulk pickups"
+        title="Invoices"
+        description="Every bulk property, prefilled with its usual loads and price. Enter what the field reported, then save. Each pickup becomes a draft dated the day we were there."
       />
+      <InvoiceTabs supabase={supabase} current="none" />
       {query.saved && <Notice kind="ok">{query.saved}</Notice>}
       {query.error && <Notice kind="error">{query.error}</Notice>}
 

@@ -162,17 +162,25 @@ function back(accountId: string, kind: "saved" | "error", message: string, retur
   revalidatePath(`/accounts/${accountId}`);
   revalidatePath("/accounts");
   revalidatePath("/contacts");
-  const base = returnTo === "contacts" ? "/contacts" : `/accounts/${accountId}`;
-  redirect(`${base}?${kind}=${encodeURIComponent(message)}`);
+  // "contacts" returns to the Contacts page; "tab:more" returns to that tab of the property page.
+  const tab = returnTo.startsWith("tab:") && returnTo !== "tab:overview" ? `tab=${returnTo.slice(4)}&` : "";
+  const base = returnTo === "contacts" ? "/contacts?" : `/accounts/${accountId}?${tab}`;
+  redirect(`${base}${kind}=${encodeURIComponent(message)}`);
 }
+
+/** The tab of the property page a form was submitted from. */
+const tabOf = (fd: FormData) => {
+  const tab = String(fd.get("tab") ?? "");
+  return /^(overview|schedule|contacts|more)$/.test(tab) ? `tab:${tab}` : "";
+};
 
 export async function updateProperty(fd: FormData) {
   const { supabase } = await requireAdmin();
   const accountId = text(fd, "account_id");
   const name = text(fd, "name");
   const unitCount = text(fd, "unit_count");
-  if (!name) back(accountId, "error", "Enter the property name.");
-  if (unitCount && wholeNumber(unitCount) === null) back(accountId, "error", "Unit count must be a whole number.");
+  if (!name) back(accountId, "error", "Enter the property name.", tabOf(fd));
+  if (unitCount && wholeNumber(unitCount) === null) back(accountId, "error", "Unit count must be a whole number.", tabOf(fd));
   const { error } = await supabase
     .from("properties")
     .update({
@@ -185,37 +193,37 @@ export async function updateProperty(fd: FormData) {
       unit_count: unitCount ? Number(unitCount) : null,
     })
     .eq("id", text(fd, "property_id"));
-  if (error) back(accountId, "error", error.message);
-  back(accountId, "saved", "Property saved.");
+  if (error) back(accountId, "error", error.message, tabOf(fd));
+  back(accountId, "saved", "Property saved.", tabOf(fd));
 }
 
 export async function updateBillTo(fd: FormData) {
   const { supabase } = await requireAdmin();
   const accountId = text(fd, "account_id");
   const name = text(fd, "customer_name");
-  if (!name) back(accountId, "error", "Enter the client name.");
+  if (!name) back(accountId, "error", "Enter the client name.", tabOf(fd));
   const { error } = await supabase
     .from("customers")
     .update({ name, is_ach_payer: fd.get("is_ach_payer") === "on" })
     .eq("id", text(fd, "customer_id"));
-  if (error) back(accountId, "error", error.message);
+  if (error) back(accountId, "error", error.message, tabOf(fd));
 
   // Owner entity: keep, rename, create, or clear.
   const ownerId = text(fd, "owner_entity_id");
   const ownerName = text(fd, "owner_legal_name");
   if (ownerId && ownerName) {
     const res = await supabase.from("owner_entities").update({ legal_name: ownerName }).eq("id", ownerId);
-    if (res.error) back(accountId, "error", res.error.message);
+    if (res.error) back(accountId, "error", res.error.message, tabOf(fd));
   } else if (ownerId && !ownerName) {
     const res = await supabase.from("billing_accounts").update({ owner_entity_id: null }).eq("id", accountId);
-    if (res.error) back(accountId, "error", res.error.message);
+    if (res.error) back(accountId, "error", res.error.message, tabOf(fd));
   } else if (!ownerId && ownerName) {
     const created = await supabase.from("owner_entities").insert({ legal_name: ownerName }).select("id").single();
-    if (created.error) back(accountId, "error", created.error.message);
+    if (created.error) back(accountId, "error", created.error.message, tabOf(fd));
     const res = await supabase.from("billing_accounts").update({ owner_entity_id: created.data.id }).eq("id", accountId);
-    if (res.error) back(accountId, "error", res.error.message);
+    if (res.error) back(accountId, "error", res.error.message, tabOf(fd));
   }
-  back(accountId, "saved", "Client details saved.");
+  back(accountId, "saved", "Client details saved.", tabOf(fd));
 }
 
 export async function saveContact(fd: FormData) {
@@ -224,8 +232,8 @@ export async function saveContact(fd: FormData) {
   const id = text(fd, "contact_id");
   const name = text(fd, "name");
   const email = text(fd, "email").toLowerCase();
-  if (!name) back(accountId, "error", "Enter the contact's name.", text(fd, "return_to"));
-  if (!EMAIL.test(email)) back(accountId, "error", `The email for ${name} does not look right.`, text(fd, "return_to"));
+  if (!name) back(accountId, "error", "Enter the contact's name.", text(fd, "return_to") || tabOf(fd));
+  if (!EMAIL.test(email)) back(accountId, "error", `The email for ${name} does not look right.`, text(fd, "return_to") || tabOf(fd));
   // Anything a person types or saves counts as checked by them.
   const values = {
     name,
@@ -238,28 +246,28 @@ export async function saveContact(fd: FormData) {
   let duplicate = supabase.from("billing_contacts").select("id").eq("account_id", accountId).eq("email", email);
   if (id) duplicate = duplicate.neq("id", id);
   const existing = await duplicate.limit(1);
-  if (existing.error) back(accountId, "error", existing.error.message, text(fd, "return_to"));
-  if (existing.data?.length) back(accountId, "error", `${email} is already a contact on this account.`, text(fd, "return_to"));
+  if (existing.error) back(accountId, "error", existing.error.message, text(fd, "return_to") || tabOf(fd));
+  if (existing.data?.length) back(accountId, "error", `${email} is already a contact on this account.`, text(fd, "return_to") || tabOf(fd));
   const { error } = id
     ? await supabase.from("billing_contacts").update(values).eq("id", id)
     : await supabase.from("billing_contacts").insert({ ...values, account_id: accountId });
-  if (error) back(accountId, "error", error.message, text(fd, "return_to"));
-  back(accountId, "saved", id ? "Contact saved." : "Contact added.", text(fd, "return_to"));
+  if (error) back(accountId, "error", error.message, text(fd, "return_to") || tabOf(fd));
+  back(accountId, "saved", id ? "Contact saved." : "Contact added.", text(fd, "return_to") || tabOf(fd));
 }
 
 export async function removeContact(fd: FormData) {
   const { supabase } = await requireAdmin();
   const accountId = text(fd, "account_id");
   const { error } = await supabase.from("billing_contacts").delete().eq("id", text(fd, "contact_id"));
-  if (error) back(accountId, "error", error.message, text(fd, "return_to"));
-  back(accountId, "saved", "Contact removed.", text(fd, "return_to"));
+  if (error) back(accountId, "error", error.message, text(fd, "return_to") || tabOf(fd));
+  back(accountId, "saved", "Contact removed.", text(fd, "return_to") || tabOf(fd));
 }
 
 export async function updateContract(fd: FormData) {
   const { supabase } = await requireAdmin();
   const accountId = text(fd, "account_id");
   const contract = readContract(fd);
-  if (typeof contract === "string") back(accountId, "error", contract);
+  if (typeof contract === "string") back(accountId, "error", contract, tabOf(fd));
   const c = contract as Record<string, string | boolean>;
   const { error } = await supabase
     .from("contracts")
@@ -274,8 +282,8 @@ export async function updateContract(fd: FormData) {
       notion_url: c.notion_url || null,
     })
     .eq("id", text(fd, "contract_id"));
-  if (error) back(accountId, "error", error.message);
-  back(accountId, "saved", "Contract terms saved.");
+  if (error) back(accountId, "error", error.message, tabOf(fd));
+  back(accountId, "saved", "Contract terms saved.", tabOf(fd));
 }
 
 export async function savePhase(fd: FormData) {
@@ -290,7 +298,7 @@ export async function savePhase(fd: FormData) {
     text(fd, "rate"),
     text(fd, "flat"),
   );
-  if (typeof phase === "string") back(accountId, "error", phase);
+  if (typeof phase === "string") back(accountId, "error", phase, tabOf(fd));
   const p = phase as PhaseInput;
   const values = {
     label: p.label,
@@ -302,61 +310,61 @@ export async function savePhase(fd: FormData) {
   const { error } = id
     ? await supabase.from("contract_phases").update(values).eq("id", id)
     : await supabase.from("contract_phases").insert({ ...values, contract_id: text(fd, "contract_id") });
-  if (error) back(accountId, "error", error.message);
-  back(accountId, "saved", id ? "Phase saved." : "Phase added.");
+  if (error) back(accountId, "error", error.message, tabOf(fd));
+  back(accountId, "saved", id ? "Phase saved." : "Phase added.", tabOf(fd));
 }
 
 export async function removePhase(fd: FormData) {
   const { supabase } = await requireAdmin();
   const accountId = text(fd, "account_id");
   const { error } = await supabase.from("contract_phases").delete().eq("id", text(fd, "phase_id"));
-  if (error) back(accountId, "error", error.message);
-  back(accountId, "saved", "Phase removed.");
+  if (error) back(accountId, "error", error.message, tabOf(fd));
+  back(accountId, "saved", "Phase removed.", tabOf(fd));
 }
 
 export async function addEventRate(fd: FormData) {
   const { supabase } = await requireAdmin();
   const accountId = text(fd, "account_id");
   const rate = parseDollarsToCents(text(fd, "rate"));
-  if (!text(fd, "event_type")) back(accountId, "error", "Choose the type of work.");
-  if (rate === null) back(accountId, "error", "Enter the rate, for example 75.00.");
+  if (!text(fd, "event_type")) back(accountId, "error", "Choose the type of work.", tabOf(fd));
+  if (rate === null) back(accountId, "error", "Enter the rate, for example 75.00.", tabOf(fd));
   const { error } = await supabase.from("contract_event_rates").insert({
     contract_id: text(fd, "contract_id"),
     event_type: text(fd, "event_type"),
     time_window: text(fd, "time_window") || null,
     rate_cents: rate,
   });
-  if (error) back(accountId, "error", error.message);
-  back(accountId, "saved", "Rate added.");
+  if (error) back(accountId, "error", error.message, tabOf(fd));
+  back(accountId, "saved", "Rate added.", tabOf(fd));
 }
 
 export async function removeEventRate(fd: FormData) {
   const { supabase } = await requireAdmin();
   const accountId = text(fd, "account_id");
   const { error } = await supabase.from("contract_event_rates").delete().eq("id", text(fd, "rate_id"));
-  if (error) back(accountId, "error", error.message);
-  back(accountId, "saved", "Rate removed.");
+  if (error) back(accountId, "error", error.message, tabOf(fd));
+  back(accountId, "saved", "Rate removed.", tabOf(fd));
 }
 
 export async function updateBillingSetup(fd: FormData) {
   const { supabase } = await requireAdmin();
   const accountId = text(fd, "account_id");
   const goLive = text(fd, "go_live_month"); // "2026-11" or empty
-  if (goLive && !/^\d{4}-\d{2}$/.test(goLive)) back(accountId, "error", "Choose the go-live service month.");
+  if (goLive && !/^\d{4}-\d{2}$/.test(goLive)) back(accountId, "error", "Choose the go-live service month.", tabOf(fd));
   const active = fd.get("active") === "on";
 
   const account = await supabase
     .from("billing_accounts")
     .update({ go_live_service_month: goLive ? `${goLive}-01` : null })
     .eq("id", accountId);
-  if (account.error) back(accountId, "error", account.error.message);
+  if (account.error) back(accountId, "error", account.error.message, tabOf(fd));
 
   const contract = await supabase
     .from("contracts")
     .update({ late_fee_template_id: text(fd, "late_fee_template_id") || null, status: active ? "active" : "draft" })
     .eq("id", text(fd, "contract_id"));
-  if (contract.error) back(accountId, "error", contract.error.message);
-  back(accountId, "saved", active ? "Saved. This account is active for billing." : "Saved. This account is not active for billing.");
+  if (contract.error) back(accountId, "error", contract.error.message, tabOf(fd));
+  back(accountId, "saved", active ? "Saved. This account is active for billing." : "Saved. This account is not active for billing.", tabOf(fd));
 }
 
 export async function addBillableEvent(fd: FormData) {
@@ -364,8 +372,8 @@ export async function addBillableEvent(fd: FormData) {
   const accountId = text(fd, "account_id");
   const date = text(fd, "event_date");
   const quantity = text(fd, "quantity") || "1";
-  if (!DATE.test(date)) back(accountId, "error", "Choose the date the work was done.");
-  if (!/^\d+(\.\d{1,2})?$/.test(quantity) || Number(quantity) <= 0) back(accountId, "error", "Quantity must be a number above zero.");
+  if (!DATE.test(date)) back(accountId, "error", "Choose the date the work was done.", tabOf(fd));
+  if (!/^\d+(\.\d{1,2})?$/.test(quantity) || Number(quantity) <= 0) back(accountId, "error", "Quantity must be a number above zero.", tabOf(fd));
   const { error } = await supabase.from("billable_events").insert({
     account_id: accountId,
     event_date: date,
@@ -376,25 +384,25 @@ export async function addBillableEvent(fd: FormData) {
     source_reference: "Entered by hand",
     status: "approved",
   });
-  if (error) back(accountId, "error", error.message);
+  if (error) back(accountId, "error", error.message, tabOf(fd));
   // Work billed per job gets its own draft invoice, dated the day it was done.
   let run;
   try {
     run = await draftLoggedWork(supabase, accountId);
   } catch (e) {
-    back(accountId, "error", `Work logged, but the draft could not be made: ${e instanceof Error ? e.message : "unknown error"}`);
+    back(accountId, "error", `Work logged, but the draft could not be made: ${e instanceof Error ? e.message : "unknown error"}`, tabOf(fd));
   }
   revalidatePath("/review");
-  if (run!.created.length > 0) back(accountId, "saved", `Work logged. A draft invoice dated ${formatDate(date)} is waiting in the review queue.`);
-  back(accountId, "saved", run!.skipped[0]?.reason ? `Work logged. No draft yet: ${run!.skipped[0].reason}` : "Work logged. It will appear on the invoice for that month.");
+  if (run!.created.length > 0) back(accountId, "saved", `Work logged. A draft invoice dated ${formatDate(date)} is waiting in the review queue.`, tabOf(fd));
+  back(accountId, "saved", run!.skipped[0]?.reason ? `Work logged. No draft yet: ${run!.skipped[0].reason}` : "Work logged. It will appear on the invoice for that month.", tabOf(fd));
 }
 
 export async function removeBillableEvent(fd: FormData) {
   const { supabase } = await requireAdmin();
   const accountId = text(fd, "account_id");
   const { error } = await supabase.from("billable_events").delete().eq("id", text(fd, "event_id")).neq("status", "invoiced");
-  if (error) back(accountId, "error", error.message);
-  back(accountId, "saved", "Logged work removed.");
+  if (error) back(accountId, "error", error.message, tabOf(fd));
+  back(accountId, "saved", "Logged work removed.", tabOf(fd));
 }
 
 /**
@@ -510,11 +518,11 @@ export async function addBulkService(fd: FormData) {
   const accountId = text(fd, "account_id");
   const rate = parseDollarsToCents(text(fd, "rate"));
   const loads = text(fd, "loads") || "1";
-  if (rate === null) back(accountId, "error", "Enter the price per load, for example 350.00.", "");
-  if (!/^\d+(\.\d{1,2})?$/.test(loads)) back(accountId, "error", "Usual loads per month must be a number, for example 1 or 1.5.", "");
+  if (rate === null) back(accountId, "error", "Enter the price per load, for example 350.00.", tabOf(fd));
+  if (!/^\d+(\.\d{1,2})?$/.test(loads)) back(accountId, "error", "Usual loads per month must be a number, for example 1 or 1.5.", tabOf(fd));
 
   const existing = await supabase.from("contracts").select("id, status, late_fee_template_id, quoted_basis, net_days").eq("account_id", accountId);
-  if (existing.error) back(accountId, "error", existing.error.message, "");
+  if (existing.error) back(accountId, "error", existing.error.message, tabOf(fd));
   const others = existing.data ?? [];
   const on = others.some((c) => c.status === "active");
   const like = others.find((c) => c.late_fee_template_id) ?? others[0];
@@ -534,11 +542,11 @@ export async function addBulkService(fd: FormData) {
     })
     .select("id")
     .single();
-  if (created.error) back(accountId, "error", created.error.message, "");
+  if (created.error) back(accountId, "error", created.error.message, tabOf(fd));
   const rateRow = await supabase.from("contract_event_rates").insert({ contract_id: created.data!.id, event_type: "bulk_pickup", rate_cents: rate, label: "Per full load" });
-  if (rateRow.error) back(accountId, "error", rateRow.error.message, "");
+  if (rateRow.error) back(accountId, "error", rateRow.error.message, tabOf(fd));
   revalidatePath("/schedule");
-  back(accountId, "saved", "Bulk trash added. Log each pickup under Logged work and it will be billed on its own invoice.", "");
+  back(accountId, "saved", "Bulk trash added. Log each pickup under Logged work and it will be billed on its own invoice.", tabOf(fd));
 }
 
 /** Removes a property: deleted if it was never invoiced, archived if it has billing history. */
@@ -547,7 +555,7 @@ export async function removeProperty(fd: FormData) {
   const accountId = text(fd, "account_id");
   const name = text(fd, "property_name");
   const { data, error } = await supabase.rpc("delete_billing_account", { p_account_id: accountId });
-  if (error) back(accountId, "error", error.message);
+  if (error) back(accountId, "error", error.message, tabOf(fd));
   revalidatePath("/accounts");
   revalidatePath("/schedule");
   revalidatePath("/contacts");
@@ -565,16 +573,16 @@ export async function updateBulkRate(fd: FormData) {
   const accountId = text(fd, "account_id");
   const rate = parseDollarsToCents(text(fd, "rate"));
   const loads = text(fd, "loads") || "1";
-  if (rate === null) back(accountId, "error", "Enter the normal price per load, for example 350.00.");
-  if (!/^\d+(\.\d{1,2})?$/.test(loads)) back(accountId, "error", "Usual loads per month must be a number, for example 1 or 1.5.");
+  if (rate === null) back(accountId, "error", "Enter the normal price per load, for example 350.00.", tabOf(fd));
+  if (!/^\d+(\.\d{1,2})?$/.test(loads)) back(accountId, "error", "Usual loads per month must be a number, for example 1 or 1.5.", tabOf(fd));
   const { error } = await supabase.from("contract_event_rates").update({ rate_cents: rate }).eq("id", text(fd, "rate_id"));
-  if (error) back(accountId, "error", error.message);
+  if (error) back(accountId, "error", error.message, tabOf(fd));
   const expected = Math.floor((2 * rate! * Math.round(Number(loads) * 100) + 100) / 200);
   const usual = await supabase.from("contracts").update({ expected_monthly_cents: expected }).eq("id", text(fd, "contract_id"));
-  if (usual.error) back(accountId, "error", usual.error.message);
+  if (usual.error) back(accountId, "error", usual.error.message, tabOf(fd));
   revalidatePath("/schedule");
   revalidatePath("/bulk");
-  back(accountId, "saved", "Saved. The bulk run and new bulk invoices for this property start from these.");
+  back(accountId, "saved", "Saved. The bulk run and new bulk invoices for this property start from these.", tabOf(fd));
 }
 
 /** Bills bulk trash every month on a chosen day, at the property's normal price. */
@@ -584,9 +592,9 @@ export async function addMonthlyBulk(fd: FormData) {
   const rate = parseDollarsToCents(text(fd, "rate"));
   const loads = text(fd, "loads") || "1";
   const day = Number(text(fd, "day"));
-  if (rate === null) back(accountId, "error", "Enter the price per load, for example 350.00.");
-  if (!/^\d+(\.\d{1,2})?$/.test(loads) || Number(loads) <= 0) back(accountId, "error", "Loads must be a number above zero, for example 1 or 1.5.");
-  if (!Number.isInteger(day) || day < 1 || day > 28) back(accountId, "error", "Choose a day of the month from 1 to 28.");
+  if (rate === null) back(accountId, "error", "Enter the price per load, for example 350.00.", tabOf(fd));
+  if (!/^\d+(\.\d{1,2})?$/.test(loads) || Number(loads) <= 0) back(accountId, "error", "Loads must be a number above zero, for example 1 or 1.5.", tabOf(fd));
+  if (!Number.isInteger(day) || day < 1 || day > 28) back(accountId, "error", "Choose a day of the month from 1 to 28.", tabOf(fd));
   const item = await supabase.from("service_items").select("id, name").eq("name", "Scheduled Bulk Waste Service").maybeSingle();
   const current = `${todayInPhoenix().slice(0, 7)}-01`;
   const { error } = await supabase.from("recurring_invoices").insert({
@@ -597,9 +605,9 @@ export async function addMonthlyBulk(fd: FormData) {
     start_month: current,
     lines: [{ service_item_id: item.data?.id ?? null, description: "Scheduled Bulk Waste Service", quantity: loads, unit_price_cents: rate }],
   });
-  if (error) back(accountId, "error", error.message);
+  if (error) back(accountId, "error", error.message, tabOf(fd));
   revalidatePath("/schedule");
-  back(accountId, "saved", `Bulk trash will be drafted on day ${day} of every month. Change the loads on the draft in the review queue if a month is different.`);
+  back(accountId, "saved", `Bulk trash will be drafted on day ${day} of every month. Change the loads on the draft in the review queue if a month is different.`, tabOf(fd));
 }
 
 export async function setRecurringStatus(fd: FormData) {
@@ -607,9 +615,9 @@ export async function setRecurringStatus(fd: FormData) {
   const accountId = text(fd, "account_id");
   const pause = text(fd, "to") === "paused";
   const { error } = await supabase.from("recurring_invoices").update({ status: pause ? "paused" : "active" }).eq("id", text(fd, "recurring_id"));
-  if (error) back(accountId, "error", error.message);
+  if (error) back(accountId, "error", error.message, tabOf(fd));
   revalidatePath("/schedule");
-  back(accountId, "saved", pause ? "Paused. No new drafts will be made from it." : "Resumed.");
+  back(accountId, "saved", pause ? "Paused. No new drafts will be made from it." : "Resumed.", tabOf(fd));
 }
 
 export async function removeRecurring(fd: FormData) {
@@ -620,12 +628,12 @@ export async function removeRecurring(fd: FormData) {
   if (used.data?.length) {
     // Invoices already made from it keep pointing at it, so it is paused instead of deleted.
     const paused = await supabase.from("recurring_invoices").update({ status: "paused" }).eq("id", id);
-    if (paused.error) back(accountId, "error", paused.error.message);
+    if (paused.error) back(accountId, "error", paused.error.message, tabOf(fd));
     revalidatePath("/schedule");
-    back(accountId, "saved", "It has already produced invoices, so it was paused instead of deleted. No new drafts will be made.");
+    back(accountId, "saved", "It has already produced invoices, so it was paused instead of deleted. No new drafts will be made.", tabOf(fd));
   }
   const { error } = await supabase.from("recurring_invoices").delete().eq("id", id);
-  if (error) back(accountId, "error", error.message);
+  if (error) back(accountId, "error", error.message, tabOf(fd));
   revalidatePath("/schedule");
-  back(accountId, "saved", "Recurring invoice removed.");
+  back(accountId, "saved", "Recurring invoice removed.", tabOf(fd));
 }

@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { SubmitButton } from "@/components/submit-button";
-import { Card, dangerButton, Empty, Eyebrow, inputClass, Notice, PageHeader, primaryButton, secondaryButton } from "@/components/ui";
+import { dangerButton, Empty, Eyebrow, inputClass, Notice, PageHeader, primaryButton, secondaryButton } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
-import { monthEnd, monthLabel, todayInPhoenix } from "@/lib/billing/dates";
+import { monthLabel, todayInPhoenix } from "@/lib/billing/dates";
 import { formatDate } from "@/lib/format";
 import { centsToInput, formatCents } from "@/lib/money";
 import { isServiceCategory, SERVICE_ORDER, SERVICES, type ServiceCategory } from "@/lib/services";
-import { approveAll, approveInvoice, generateDraftsAction, rejectDraft, setNextInvoiceNumber, updateDraftLine } from "./actions";
+import { InvoiceTabs } from "@/components/section-tabs";
+import { approveAll, approveInvoice, generateDraftsAction, rejectDraft, updateDraftLine } from "./actions";
 
 type Line = { id: string; description: string; amount_cents: number; quantity: number; unit_price_cents: number; sort_order: number; contract_phase_id: string | null; line_type: string };
 type Draft = {
@@ -53,31 +54,24 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Month end"
-        title="Review queue"
-        description="Nothing reaches a customer or the ledger until it is approved here. Approved invoices move to the Send page."
-        action={<Link href="/invoices/new" className={primaryButton}>Create invoice</Link>}
-      />
+      <PageHeader eyebrow="Step 1 of 2" title="Invoices" description="Check each draft and approve it. Approved invoices move to Send, where they all go out together." />
+      <InvoiceTabs supabase={supabase} current="review" />
       {saved && <Notice kind="ok">{saved}</Notice>}
       {errorMessage && <Notice kind="error">{errorMessage}</Notice>}
       {draftsRes.error && <Notice kind="error">Could not load drafts: {draftsRes.error.message}</Notice>}
+      {nextNumber == null && (
+        <Notice kind="info">
+          The starting invoice number is not set, so nothing can be approved yet. Set it in <Link href="/settings" className="font-medium underline">Settings</Link>.
+        </Notice>
+      )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Generate drafts" description={`Drafts one invoice for every property and service on the schedule that is switched on and owes something that month. Invoices are dated the last day of the service month (${formatDate(monthEnd(`${defaultMonth}-01`))} for ${monthLabel(`${defaultMonth}-01`)}).`}>
-          <form action={generateDraftsAction} className="flex flex-wrap gap-2">
-            <input type="month" name="month" defaultValue={defaultMonth} aria-label="Service month" className={`${inputClass} max-w-52`} />
-            <SubmitButton className={primaryButton}>Generate drafts</SubmitButton>
-          </form>
-        </Card>
-        <Card title="Invoice numbering" description="Numbers are assigned on approval, in order, and never reused.">
-          <form action={setNextInvoiceNumber} className="flex flex-wrap gap-2">
-            <input name="next_invoice_number" inputMode="numeric" defaultValue={nextNumber ?? ""} placeholder="Next invoice number" aria-label="Next invoice number" className={`${inputClass} max-w-52`} />
-            <SubmitButton className={secondaryButton}>Save</SubmitButton>
-          </form>
-          {nextNumber == null && <p className="mt-3 text-sm text-amber-700">Not set yet. Drafts cannot be approved until it is.</p>}
-        </Card>
-      </div>
+      <form action={generateDraftsAction} className="flex flex-wrap items-center gap-2 rounded-3xl border border-line bg-white p-4 sm:px-6">
+        <p className="mr-auto text-[15px] text-slate-700">
+          <span className="font-semibold text-ink">Monthly invoices.</span> Draft every valet and trash room invoice on the schedule for a month.
+        </p>
+        <input type="month" name="month" defaultValue={defaultMonth} aria-label="Service month" className={`${inputClass} max-w-48`} />
+        <SubmitButton className={primaryButton}>Draft the month</SubmitButton>
+      </form>
 
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
         <div className="flex flex-wrap gap-1 rounded-full border border-line bg-white p-1">
@@ -111,7 +105,7 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
         </div>
       </div>
 
-      {drafts.length === 0 && <Empty>No drafts waiting. Generate drafts for a service month to fill the queue.</Empty>}
+      {drafts.length === 0 && <Empty>Nothing to review. Draft the month above, enter bulk pickups, or create a one-off invoice.</Empty>}
 
       {drafts.map((d) => {
         const previous = posted

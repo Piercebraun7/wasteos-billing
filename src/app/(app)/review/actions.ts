@@ -49,10 +49,11 @@ export async function generateDraftsAction(fd: FormData) {
 export async function setNextInvoiceNumber(fd: FormData) {
   const { supabase } = await requireAdmin();
   const value = text(fd, "next_invoice_number");
-  if (!/^\d+$/.test(value)) back("error", "The next invoice number must be a whole number.");
+  if (!/^\d+$/.test(value)) backTo("/settings", "error", "The next invoice number must be a whole number.");
   const { error } = await supabase.from("app_settings").update({ next_invoice_number: Number(value) }).eq("singleton", true);
-  if (error) back("error", error.message);
-  back("saved", `The next invoice approved will be number ${value}.`);
+  if (error) backTo("/settings", "error", error.message);
+  revalidatePath("/settings");
+  backTo("/settings", "saved", `The next invoice approved will be number ${value}.`);
 }
 
 export async function approveInvoice(fd: FormData) {

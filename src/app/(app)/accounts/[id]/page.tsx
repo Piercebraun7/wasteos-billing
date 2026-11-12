@@ -83,16 +83,24 @@ function phaseAmount(model: string, p: Phase): string {
   return p.flat_amount_cents !== null ? `${formatCents(p.flat_amount_cents)} per month` : "";
 }
 
+const TABS = [
+  ["overview", "Overview"],
+  ["schedule", "Schedule"],
+  ["contacts", "Contacts"],
+  ["more", "More"],
+] as const;
+
 export default async function AccountPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ saved?: string; error?: string }>;
+  searchParams: Promise<{ saved?: string; error?: string; tab?: string }>;
 }) {
   const { supabase } = await requireAdmin();
   const { id } = await params;
-  const { saved, error: errorMessage } = await searchParams;
+  const { saved, error: errorMessage, tab: wantedTab } = await searchParams;
+  const tab = TABS.some(([key]) => key === wantedTab) ? wantedTab! : "overview";
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
 
   const [recurringRes, templates, invoicesRes, eventsRes, { data, error }, overview] = await Promise.all([
@@ -133,7 +141,12 @@ export default async function AccountPage({
   const bulkRate = bulk?.event_rates.find((r) => r.event_type === "bulk_pickup");
   const phases = contract ? [...contract.phases].sort((a, b) => a.effective_start.localeCompare(b.effective_start)) : [];
   const balance = Number(overview.data?.balance_cents ?? 0);
-  const hidden = <input type="hidden" name="account_id" value={account.id} />;
+  const hidden = (
+    <>
+      <input type="hidden" name="account_id" value={account.id} />
+      <input type="hidden" name="tab" value={tab} />
+    </>
+  );
   const address = [property.address_line1, property.city, property.state].filter(Boolean).join(", ");
   const current = [...phases].reverse().find((p) => !p.superseded_at);
   const facts: [string, string][] = [
@@ -155,7 +168,7 @@ export default async function AccountPage({
     <div className="space-y-5">
       <div>
         <Link href="/accounts" className="inline-flex items-center gap-1.5 text-sm font-medium text-mute transition hover:text-ink">
-          <span aria-hidden>&larr;</span> Clients
+          <span aria-hidden>&larr;</span> Properties
         </Link>
         <div className="relative mt-4 overflow-hidden rounded-[28px] bg-ink p-6 text-white sm:p-9">
           <div className="grid-lines pointer-events-none absolute inset-0" aria-hidden />
@@ -197,6 +210,19 @@ export default async function AccountPage({
         </p>
       )}
 
+      <div className="flex flex-wrap gap-1 rounded-full border border-line bg-white p-1 sm:w-fit">
+        {TABS.map(([key, label]) => (
+          <Link key={key} href={`/accounts/${account.id}${key === "overview" ? "" : `?tab=${key}`}`} aria-current={tab === key ? "page" : undefined}
+            className={`rounded-full px-4 py-2 text-sm font-medium transition ${tab === key ? "bg-ink text-white" : "text-slate-600 hover:bg-slate-100"}`}>
+            {label}
+            {key === "contacts" && need.contact && <Needed />}
+            {key === "schedule" && need.phase && <Needed />}
+          </Link>
+        ))}
+      </div>
+
+      {tab === "overview" && (
+        <>
       {contract && (
         <section className="rounded-3xl border border-line bg-white p-5 shadow-[0_1px_2px_rgb(16_24_40/0.04)] sm:p-7">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -262,6 +288,46 @@ export default async function AccountPage({
         )}
       </Card>
 
+        </>
+      )}
+
+      {tab === "contacts" && (
+        <>
+      <Card title="Points of contact" description="The people at this property who receive its invoices by email." needed={need.contact}>
+        <div className="space-y-3">
+          {contacts.length === 0 && <p className="text-sm text-mute">No contacts yet. Invoices cannot be sent until there is at least one.</p>}
+          {contacts.map((c) => (
+            <div key={c.id} className="flex flex-wrap items-end gap-2">
+              <form action={saveContact} className="grid flex-1 gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
+                {hidden}
+                <input type="hidden" name="contact_id" value={c.id} />
+                <input name="name" defaultValue={c.name} aria-label="Contact name" className={inputClass} />
+                <input name="email" type="email" defaultValue={c.email} aria-label="Contact email" className={inputClass} />
+                <input name="role" defaultValue={c.role ?? ""} placeholder="Role" aria-label="Contact role" className={inputClass} />
+                <SubmitButton className={secondaryButton}>Save</SubmitButton>
+              </form>
+              <form action={removeContact}>
+                {hidden}
+                <input type="hidden" name="contact_id" value={c.id} />
+                <SubmitButton className={dangerButton}>Remove</SubmitButton>
+              </form>
+            </div>
+          ))}
+          <form action={saveContact} className="grid gap-2 border-t border-line pt-4 sm:grid-cols-[1fr_1fr_1fr_auto]">
+            {hidden}
+            <input name="name" placeholder="Name" aria-label="New contact name" className={inputClass} />
+            <input name="email" type="email" placeholder="Email" aria-label="New contact email" className={inputClass} />
+            <input name="role" placeholder="Role" aria-label="New contact role" className={inputClass} />
+            <SubmitButton className={primaryButton}>Add contact</SubmitButton>
+          </form>
+        </div>
+      </Card>
+
+        </>
+      )}
+
+      {tab === "more" && (
+        <>
       <Card title="Property">
         <form action={updateProperty} className="grid gap-4 sm:grid-cols-6">
           {hidden}
@@ -314,38 +380,12 @@ export default async function AccountPage({
         </form>
       </Card>
 
-      <Card title="Points of contact" description="The people at this property who receive its invoices by email." needed={need.contact}>
-        <div className="space-y-3">
-          {contacts.length === 0 && <p className="text-sm text-mute">No contacts yet. Invoices cannot be sent until there is at least one.</p>}
-          {contacts.map((c) => (
-            <div key={c.id} className="flex flex-wrap items-end gap-2">
-              <form action={saveContact} className="grid flex-1 gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
-                {hidden}
-                <input type="hidden" name="contact_id" value={c.id} />
-                <input name="name" defaultValue={c.name} aria-label="Contact name" className={inputClass} />
-                <input name="email" type="email" defaultValue={c.email} aria-label="Contact email" className={inputClass} />
-                <input name="role" defaultValue={c.role ?? ""} placeholder="Role" aria-label="Contact role" className={inputClass} />
-                <SubmitButton className={secondaryButton}>Save</SubmitButton>
-              </form>
-              <form action={removeContact}>
-                {hidden}
-                <input type="hidden" name="contact_id" value={c.id} />
-                <SubmitButton className={dangerButton}>Remove</SubmitButton>
-              </form>
-            </div>
-          ))}
-          <form action={saveContact} className="grid gap-2 border-t border-line pt-4 sm:grid-cols-[1fr_1fr_1fr_auto]">
-            {hidden}
-            <input name="name" placeholder="Name" aria-label="New contact name" className={inputClass} />
-            <input name="email" type="email" placeholder="Email" aria-label="New contact email" className={inputClass} />
-            <input name="role" placeholder="Role" aria-label="New contact role" className={inputClass} />
-            <SubmitButton className={primaryButton}>Add contact</SubmitButton>
-          </form>
-        </div>
-      </Card>
+        </>
+      )}
 
       {contract && (
         <>
+          {tab === "more" && (
           <Card title="Contract terms">
             <form action={updateContract} className="grid gap-4 sm:grid-cols-3">
               {hidden}
@@ -391,8 +431,9 @@ export default async function AccountPage({
               </div>
             </form>
           </Card>
+          )}
 
-          {usesPhases(contract.billing_model) && (
+          {usesPhases(contract.billing_model) && tab === "schedule" && (
             <Card
               title="Phases"
               needed={need.phase}
@@ -451,6 +492,7 @@ export default async function AccountPage({
             </Card>
           )}
 
+          {tab === "more" && (
           <Card
             title="Rates for one-off work"
             description="Dumpster moves, bulk pickups, trash room visits, and as-needed jobs. Work with no rate here is held for review and never billed at a guessed rate."
@@ -482,7 +524,9 @@ export default async function AccountPage({
               </form>
             </div>
           </Card>
+          )}
 
+          {tab === "overview" && (
           <Card
             title="Bulk trash"
             description="Billed on its own invoice, separate from the monthly service. Set the normal price once and every bulk invoice for this property starts from it."
@@ -519,7 +563,9 @@ export default async function AccountPage({
               </form>
             )}
           </Card>
+          )}
 
+          {tab === "schedule" && (
           <Card title="Recurring invoices" description="Each one drafts an invoice every month on its day, for you to review and approve. They appear on the schedule of billing.">
             {recurring.length === 0 ? (
               <p className="text-sm text-mute">
@@ -559,7 +605,9 @@ export default async function AccountPage({
               </ul>
             )}
           </Card>
+          )}
 
+          {tab === "more" && (
           <Card
             title="Logged work"
             description="Dumpster moves, bulk pickups, and other one-off jobs. Each is billed on the invoice for the month it was done, at the rate above."
@@ -594,9 +642,12 @@ export default async function AccountPage({
               </form>
             </div>
           </Card>
+          )}
         </>
       )}
 
+      {tab === "more" && (
+        <>
       <details className="rounded-3xl border border-line bg-white p-5 sm:p-7">
         <summary className="cursor-pointer text-sm font-medium text-red-600">Remove this property</summary>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-mute">
@@ -608,6 +659,9 @@ export default async function AccountPage({
           <SubmitButton className={`${dangerButton} border border-red-200`}>Yes, remove {property.name}</SubmitButton>
         </form>
       </details>
+        </>
+      )}
+
     </div>
   );
 }

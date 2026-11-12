@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Empty, Notice, PageHeader, primaryButton, Stat } from "@/components/ui";
+import { InvoiceTabs } from "@/components/section-tabs";
+import { Empty, Notice, PageHeader, Stat } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { monthLabel, todayInPhoenix } from "@/lib/billing/dates";
 import { formatDate } from "@/lib/format";
@@ -20,18 +21,13 @@ type Row = {
   account: { property: { name: string }; customer: { name: string } };
 };
 
-const VIEWS = [
-  { key: "unpaid", label: "Unpaid" },
-  { key: "overdue", label: "Overdue" },
-  { key: "paid", label: "Paid" },
-  { key: "all", label: "All" },
-] as const;
-type View = (typeof VIEWS)[number]["key"];
+const VIEWS = ["unpaid", "overdue", "paid", "all"] as const;
+type View = (typeof VIEWS)[number];
 
 export default async function InvoicesPage({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
   const { supabase } = await requireAdmin();
   const wanted = (await searchParams).view;
-  const view: View = VIEWS.some((v) => v.key === wanted) ? (wanted as View) : "unpaid";
+  const view: View = VIEWS.includes(wanted as View) ? (wanted as View) : "unpaid";
   const today = todayInPhoenix();
 
   const [invoicesRes, applications, credits] = await Promise.all([
@@ -70,12 +66,8 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Receivables"
-        title="Invoices"
-        description="Every invoice that has been approved, with what is still owed on each."
-        action={<Link href="/invoices/new" className={primaryButton}>Create invoice</Link>}
-      />
+      <PageHeader eyebrow="Receivables" title="Invoices" description="What has been paid, what has not, and what is still owed on each." />
+      <InvoiceTabs supabase={supabase} current={view === "paid" ? "paid" : view === "all" ? "none" : "unpaid"} />
       {invoicesRes.error && <Notice kind="error">Could not load invoices: {invoicesRes.error.message}</Notice>}
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -84,18 +76,15 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Pro
         <Stat label="Paid in full" value={String(rows.filter((r) => r.state === "Paid").length)} detail="Invoices" />
       </div>
 
-      <div className="flex w-fit flex-wrap gap-1 rounded-full border border-line bg-white p-1">
-        {VIEWS.map((v) => (
-          <Link
-            key={v.key}
-            href={`/invoices?view=${v.key}`}
-            aria-current={view === v.key ? "page" : undefined}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${view === v.key ? "bg-ink text-white" : "text-slate-600 hover:bg-slate-100"}`}
-          >
-            {v.label}
-          </Link>
-        ))}
-      </div>
+      {view !== "paid" && (
+        <div className="flex flex-wrap gap-4 text-sm font-medium">
+          {([["unpaid", "All unpaid"], ["overdue", "Overdue only"], ["all", "Everything, including paid"]] as const).map(([key, label]) => (
+            <Link key={key} href={`/invoices?view=${key}`} className={view === key ? "text-ink underline underline-offset-4" : "text-mute hover:text-ink"}>
+              {label}
+            </Link>
+          ))}
+        </div>
+      )}
 
       {shown.length === 0 ? (
         <Empty>{rows.length === 0 ? "No invoices have been approved yet." : "Nothing in this view."}</Empty>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SubmitButton } from "@/components/submit-button";
 import { Empty, Eyebrow, inputClass, Notice, PageHeader, primaryButton, secondaryButton } from "@/components/ui";
+import { PropertyTabs } from "@/components/section-tabs";
 import { requireAdmin } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { confirmContacts, removeContact, saveContact } from "../accounts/actions";
@@ -41,11 +42,8 @@ export default async function ContactsPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Who gets the invoices"
-        title="Contacts"
-        description="Each property's invoices go to the people in its To line, with anyone marked CC copied. Fix anything out of date, then confirm."
-      />
+      <PageHeader eyebrow="Who gets the invoices" title="Properties" description="Invoices go to the people in each property's To line, with anyone marked CC copied." />
+      <PropertyTabs current="contacts" />
       {saved && <Notice kind="ok">{saved}</Notice>}
       {error && <Notice kind="error">{error}</Notice>}
       {loadError && <Notice kind="error">Could not load contacts: {loadError.message}</Notice>}

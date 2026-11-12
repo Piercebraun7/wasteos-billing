@@ -1,3 +1,4 @@
+import { SettingsTabs } from "@/components/section-tabs";
 import { Notice, PageHeader } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { ItemsList, type Item } from "./items-list";
@@ -9,11 +10,8 @@ export default async function ItemsPage({ searchParams }: { searchParams: Promis
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Setup"
-        title="Products and services"
-        description="What you can put on an invoice. Click anything to change it."
-      />
+      <PageHeader eyebrow="Set once" title="Settings" description="What you can put on an invoice. Click anything to change it." />
+      <SettingsTabs current="items" />
       {saved && <Notice kind="ok">{saved}</Notice>}
       {error && <Notice kind="error">{error}</Notice>}
       <ItemsList items={(data ?? []) as Item[]} />

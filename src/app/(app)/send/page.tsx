@@ -6,6 +6,7 @@ import { emailIsConnected } from "@/lib/email/resend";
 import { formatDate } from "@/lib/format";
 import { formatCents } from "@/lib/money";
 import { isServiceCategory, SERVICE_ORDER, SERVICES, type ServiceCategory } from "@/lib/services";
+import { InvoiceTabs } from "@/components/section-tabs";
 import { sendAll, sendOne } from "./actions";
 
 type Invoice = { id: string; account_id: string; invoice_number: number; total_cents: number; due_date: string; kind: string; service_category: string | null };
@@ -46,9 +47,9 @@ export default async function SendPage({ searchParams }: { searchParams: Promise
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Delivery"
-        title="Send"
-        description={`Approved invoices waiting to go out, one email per property with every invoice attached. They are sent from ${settings.data?.email_sender ?? "invoices@kaizen-waste.com"}.`}
+        eyebrow="Step 2 of 2"
+        title="Invoices"
+        description={`Approved invoices, ready to ship. One email per property with every invoice attached, sent from ${settings.data?.email_sender ?? "invoices@kaizen-waste.com"}.`}
         action={
           groups.length > 0 && connected ? (
             <form action={sendAll}>
@@ -60,6 +61,7 @@ export default async function SendPage({ searchParams }: { searchParams: Promise
           ) : undefined
         }
       />
+      <InvoiceTabs supabase={supabase} current="send" />
       {saved && <Notice kind="ok">{saved}</Notice>}
       {error && <Notice kind="error">{error}</Notice>}
       {!connected && <Notice kind="info">Email is not connected yet, so nothing can be sent. Everything else on this page works, and sending switches on once the one-time email setup is done.</Notice>}

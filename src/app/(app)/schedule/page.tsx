@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SubmitButton } from "@/components/submit-button";
-import { Empty, Notice, PageHeader, primaryButton, secondaryButton } from "@/components/ui";
+import { PropertyTabs } from "@/components/section-tabs";
+import { Empty, Notice, PageHeader, secondaryButton } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { todayInPhoenix } from "@/lib/billing/dates";
 import { divideRoundHalfUp, rateFor, type BillingModel, type EventRate, type Phase } from "@/lib/billing/invoice-math";
@@ -125,12 +126,8 @@ export default async function SchedulePage({
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Planning"
-        title="Schedule of billing"
-        description="What every property is contracted to be billed each month, by service. A draft invoice is created for each month shown here once billing is switched on."
-        action={<Link href="/accounts/new?next=schedule" className={primaryButton}>Launch a property</Link>}
-      />
+      <PageHeader eyebrow="What is contracted, month by month" title="Properties" description="What each property is due to be billed each month, by service. Drafts are made from this once billing is switched on." />
+      <PropertyTabs current="schedule" />
       {query.saved && <Notice kind="ok">{query.saved}</Notice>}
       {query.error && <Notice kind="error">{query.error}</Notice>}
       {accounts.error && <Notice kind="error">Could not load the schedule: {accounts.error.message}</Notice>}

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { InvoiceTabs } from "@/components/section-tabs";
 import { PageHeader } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { todayInPhoenix } from "@/lib/billing/dates";
@@ -22,15 +22,9 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
 
   return (
     <>
-      <Link href="/review" className="inline-flex items-center gap-1.5 text-sm font-medium text-mute transition hover:text-ink">
-        <span aria-hidden>&larr;</span> Review queue
-      </Link>
-      <div className="mt-4">
-        <PageHeader
-          eyebrow="One-off billing"
-          title="Create invoice"
-          description="For work outside the monthly schedule: a bulk pickup, a replacement can, a one-time job. It posts to the customer's account balance like any other invoice."
-        />
+      <div className="space-y-6">
+        <PageHeader eyebrow="One-off invoice" title="Invoices" description="For anything outside the monthly schedule. It goes to Review like every other invoice." />
+        <InvoiceTabs supabase={supabase} current="none" />
       </div>
       <InvoiceForm
         accounts={(accounts.data ?? []) as { account_id: string; property_name: string; customer_name: string; balance_cents: number }[]}
