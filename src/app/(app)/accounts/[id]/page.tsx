@@ -7,7 +7,6 @@ import { monthLabel } from "@/lib/billing/dates";
 import { BILLING_MODELS, EVENT_TYPES, formatDate, usesPhases } from "@/lib/format";
 import { bpsToInput, centsToInput, formatCents, lineAmountCents } from "@/lib/money";
 import {
-  addMonthlyBulk,
   removeRecurring,
   setRecurringStatus,
   updateBulkRate,
@@ -96,17 +95,11 @@ export default async function AccountPage({
   const { saved, error: errorMessage } = await searchParams;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
 
-  const recurringRes = await supabase.from("recurring_invoices").select("*").eq("account_id", id).order("created_at");
-  const recurring = (recurringRes.data ?? []) as {
-    id: string; name: string; service_category: string; day_of_month: number; status: string;
-    lines: { description: string; quantity: string; unit_price_cents: number }[];
-  }[];
-  const [templates, invoicesRes, eventsRes] = await Promise.all([
+  const [recurringRes, templates, invoicesRes, eventsRes, { data, error }, overview] = await Promise.all([
+    supabase.from("recurring_invoices").select("*").eq("account_id", id).order("created_at"),
     supabase.from("late_fee_templates").select("id, name").not("confirmed_at", "is", null).order("name"),
     supabase.from("invoices").select("id, invoice_number, service_month, due_date, status, total_cents").eq("account_id", id).order("service_month", { ascending: false }),
     supabase.from("billable_events").select("id, event_date, event_type, time_window, quantity, description, status").eq("account_id", id).order("event_date", { ascending: false }).limit(25),
-  ]);
-  const [{ data, error }, overview] = await Promise.all([
     supabase
       .from("billing_accounts")
       .select(
@@ -122,6 +115,10 @@ export default async function AccountPage({
       .maybeSingle(),
     supabase.from("account_overview").select("balance_cents").eq("account_id", id).maybeSingle(),
   ]);
+  const recurring = (recurringRes.data ?? []) as {
+    id: string; name: string; service_category: string; day_of_month: number; status: string;
+    lines: { description: string; quantity: string; unit_price_cents: number }[];
+  }[];
   if (error) return <Notice kind="error">Could not load this account: {error.message}</Notice>;
   if (!data) notFound();
 
@@ -490,37 +487,35 @@ export default async function AccountPage({
             title="Bulk trash"
             description="Billed on its own invoice, separate from the monthly service. Set the normal price once and every bulk invoice for this property starts from it."
           >
-            {bulkRate ? (
+            {bulkRate && bulk ? (
               <form action={updateBulkRate} className="flex flex-wrap items-end gap-2">
                 {hidden}
                 <input type="hidden" name="rate_id" value={bulkRate.id} />
+                <input type="hidden" name="contract_id" value={bulk.id} />
                 <Field label="Normal price per load">
                   <input name="rate" inputMode="decimal" defaultValue={centsToInput(bulkRate.rate_cents)} className={`${inputClass} w-40 text-right tabular-nums`} />
                 </Field>
-                <SubmitButton className={secondaryButton}>Save price</SubmitButton>
+                <Field label="Usual loads per month">
+                  <input
+                    name="loads"
+                    inputMode="decimal"
+                    defaultValue={bulk.expected_monthly_cents != null && bulkRate.rate_cents > 0 ? Math.round((100 * Number(bulk.expected_monthly_cents)) / bulkRate.rate_cents) / 100 : 1}
+                    className={`${inputClass} w-32 text-right tabular-nums`}
+                  />
+                </Field>
+                <SubmitButton className={secondaryButton}>Save</SubmitButton>
+                <Link href="/bulk" className={`${secondaryButton} ml-auto`}>Open this month&apos;s bulk run</Link>
               </form>
             ) : (
               <form action={addBulkService} className="flex flex-wrap items-end gap-2">
                 {hidden}
-                <input type="hidden" name="loads" value="1" />
                 <Field label="Normal price per load">
                   <input name="rate" inputMode="decimal" defaultValue="350.00" className={`${inputClass} w-40 text-right tabular-nums`} />
                 </Field>
+                <Field label="Usual loads per month">
+                  <input name="loads" inputMode="decimal" defaultValue="1" className={`${inputClass} w-32 text-right tabular-nums`} />
+                </Field>
                 <SubmitButton className={primaryButton}>Add bulk trash</SubmitButton>
-              </form>
-            )}
-
-            {bulkRate && !recurring.some((r) => r.service_category === "bulk") && (
-              <form action={addMonthlyBulk} className="mt-5 flex flex-wrap items-end gap-2 border-t border-line pt-5">
-                {hidden}
-                <input type="hidden" name="rate" value={centsToInput(bulkRate.rate_cents)} />
-                <Field label="Bill it every month on day">
-                  <input name="day" inputMode="numeric" defaultValue="10" className={`${inputClass} w-28`} />
-                </Field>
-                <Field label="Usual loads">
-                  <input name="loads" inputMode="decimal" defaultValue="1" className={`${inputClass} w-28`} />
-                </Field>
-                <SubmitButton className={primaryButton}>Make it monthly</SubmitButton>
               </form>
             )}
           </Card>
@@ -528,7 +523,7 @@ export default async function AccountPage({
           <Card title="Recurring invoices" description="Each one drafts an invoice every month on its day, for you to review and approve. They appear on the schedule of billing.">
             {recurring.length === 0 ? (
               <p className="text-sm text-mute">
-                None yet. Use Make it monthly above for bulk trash, or tick Repeat on <Link href={`/invoices/new?account=${account.id}`} className="font-medium text-ink underline">Create invoice</Link> for anything else.
+                None yet. Tick Repeat on <Link href={`/invoices/new?account=${account.id}`} className="font-medium text-ink underline">Create invoice</Link> to add one.
               </p>
             ) : (
               <ul className="divide-y divide-line">

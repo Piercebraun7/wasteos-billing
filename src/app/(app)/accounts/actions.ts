@@ -559,15 +559,22 @@ export async function removeProperty(fd: FormData) {
   redirect(`/accounts?saved=${encodeURIComponent(message)}`);
 }
 
-/** Sets the property's normal price per load for bulk trash. */
+/** Sets the property's normal price per load for bulk trash, and how many loads a usual month has. */
 export async function updateBulkRate(fd: FormData) {
   const { supabase } = await requireAdmin();
   const accountId = text(fd, "account_id");
   const rate = parseDollarsToCents(text(fd, "rate"));
+  const loads = text(fd, "loads") || "1";
   if (rate === null) back(accountId, "error", "Enter the normal price per load, for example 350.00.");
+  if (!/^\d+(\.\d{1,2})?$/.test(loads)) back(accountId, "error", "Usual loads per month must be a number, for example 1 or 1.5.");
   const { error } = await supabase.from("contract_event_rates").update({ rate_cents: rate }).eq("id", text(fd, "rate_id"));
   if (error) back(accountId, "error", error.message);
-  back(accountId, "saved", "Normal bulk price saved. New bulk invoices for this property will use it.");
+  const expected = Math.floor((2 * rate! * Math.round(Number(loads) * 100) + 100) / 200);
+  const usual = await supabase.from("contracts").update({ expected_monthly_cents: expected }).eq("id", text(fd, "contract_id"));
+  if (usual.error) back(accountId, "error", usual.error.message);
+  revalidatePath("/schedule");
+  revalidatePath("/bulk");
+  back(accountId, "saved", "Saved. The bulk run and new bulk invoices for this property start from these.");
 }
 
 /** Bills bulk trash every month on a chosen day, at the property's normal price. */

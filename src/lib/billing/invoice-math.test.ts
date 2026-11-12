@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, daysInMonth, monthEnd, todayInPhoenix } from "./dates";
+import { addDays, daysInMonth, firstWeekdayOfMonth, monthEnd, todayInPhoenix } from "./dates";
 import { applyTax, eventLines, invoiceDates, mayInvoice, prorate, recurringLines, type DraftLine, type Phase } from "./invoice-math";
 
 const valet = (id: string, start: string, units: number, rate: number, label = "Full rate"): Phase => ({
@@ -24,6 +24,12 @@ describe("dates", () => {
     expect(addDays("2026-11-30", 30)).toBe("2026-12-30");
     expect(addDays("2026-12-31", 30)).toBe("2027-01-30");
     expect(addDays("2027-03-01", -1)).toBe("2027-02-28");
+  });
+  it("finds the first Monday of a month", () => {
+    expect(firstWeekdayOfMonth("2026-11-01", 1)).toBe("2026-11-02");
+    expect(firstWeekdayOfMonth("2026-12-01", 1)).toBe("2026-12-07");
+    expect(firstWeekdayOfMonth("2027-02-01", 1)).toBe("2027-02-01");
+    expect(firstWeekdayOfMonth("2026-12-01", 2)).toBe("2026-12-01");
   });
   it("uses Phoenix time (UTC minus 7, no daylight saving)", () => {
     expect(todayInPhoenix(new Date("2026-12-01T06:59:00Z"))).toBe("2026-11-30");
@@ -197,6 +203,15 @@ describe("per-event lines", () => {
     });
     expect(lines).toEqual([]);
     expect(held.map((e) => e.id)).toEqual(["1", "2"]);
+  });
+
+  it("uses a job's own price when it has one, even with no contract rate", () => {
+    const { lines, held } = eventLines({
+      events: [{ ...ev("1", "2026-11-02", "bulk_pickup", 1.5), rate_cents: 40000 }, { ...ev("2", "2026-11-03", "dumpster_move"), rate_cents: 12500 }],
+      rates, serviceMonth: "2026-11-01",
+    });
+    expect(held).toEqual([]);
+    expect(lines.map((l) => [l.unit_price_cents, l.amount_cents])).toEqual([[40000, 60000], [12500, 12500]]);
   });
 
   it("handles fractional quantities without floating point drift", () => {

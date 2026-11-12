@@ -1,13 +1,11 @@
 import { redirect } from "next/navigation";
 import { Wordmark } from "@/components/ui";
-import { createClient, isBillingAdmin } from "@/lib/supabase/server";
+import { createClient, currentUser, isBillingAdmin } from "@/lib/supabase/server";
 import { LoginForm } from "./login-form";
 
 export default async function LoginPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await currentUser(supabase);
   if (isBillingAdmin(user)) redirect("/");
 
   return (

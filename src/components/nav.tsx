@@ -7,6 +7,7 @@ const ITEMS = [
   { href: "/", label: "Dashboard", icon: "M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z" },
   { href: "/accounts", label: "Clients", icon: "M4 20V8l8-4 8 4v12M9 20v-6h6v6M4 20h16" },
   { href: "/schedule", label: "Schedule of billing", icon: "M4 6h16v14H4zM4 10h16M9 6v14M15 6v14" },
+  { href: "/bulk", label: "Bulk trash", icon: "M5 8h14l-1.2 11H6.2zM9 8V5h6v3M3 8h18" },
   { href: "/invoices/new", label: "Create invoice", icon: "M12 5v14M5 12h14" },
   { href: "/review", label: "Review queue", icon: "M5 4h14v16H5zM9 9h6M9 13h6M9 17h3" },
   { href: "/invoices", label: "Invoices", icon: "M7 4h10v16l-2.5-1.5L12 20l-2.5-1.5L7 20zM10 9h4M10 13h4" },

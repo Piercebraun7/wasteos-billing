@@ -21,9 +21,10 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Verifies the sign-in token (refreshing it when it is about to expire).
+  // Usually this needs no round trip to the sign-in server.
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims?.sub ?? null;
 
   const onLogin = request.nextUrl.pathname.startsWith("/login");
   if (!user && !onLogin) {

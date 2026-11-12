@@ -129,6 +129,8 @@ export type BillableEvent = {
   time_window: string | null;
   quantity: number;
   description: string | null;
+  /** A price for this job alone. When set, it is used instead of the contract's rate. */
+  rate_cents?: number | null;
 };
 export type EventRate = { event_type: string; time_window: string | null; rate_cents: number };
 
@@ -140,8 +142,9 @@ const EVENT_NAME: Record<string, string> = {
   other: "Other work",
 };
 
-/** The contract's rate for an event: an exact window match first, then the rate with no window. */
+/** The rate for an event: its own price if it has one, then an exact window match on the contract, then the contract rate with no window. */
 export function rateFor(event: BillableEvent, rates: EventRate[]): number | null {
+  if (event.rate_cents != null) return Number(event.rate_cents);
   const sameType = rates.filter((r) => r.event_type === event.event_type);
   const exact = sameType.find((r) => (r.time_window ?? "") === (event.time_window ?? ""));
   if (exact) return exact.rate_cents;

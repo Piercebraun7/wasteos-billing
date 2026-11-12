@@ -55,3 +55,10 @@ export function todayInPhoenix(now: Date = new Date()): ISODate {
   const t = new Date(now.getTime() - 7 * 60 * 60 * 1000);
   return iso(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate());
 }
+
+/** The first given weekday of a month (0 is Sunday, 1 is Monday). */
+export function firstWeekdayOfMonth(month: ISODate, weekday: number): ISODate {
+  const { y, m } = parts(month);
+  const first = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+  return iso(y, m, 1 + ((weekday - first + 7) % 7));
+}

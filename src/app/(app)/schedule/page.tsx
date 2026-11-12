@@ -48,19 +48,17 @@ export default async function SchedulePage({
   const months = monthsOfYear(year);
   const view: ServiceCategory | "all" = isServiceCategory(query.service) ? query.service : "all";
 
-  const [recurringRes, recurringInvoices] = await Promise.all([
+  const [recurringRes, recurringInvoices, accounts, invoices, events] = await Promise.all([
     supabase.from("recurring_invoices").select("*").eq("status", "active"),
     supabase.from("invoices").select("recurring_invoice_id, service_month, total_cents").not("recurring_invoice_id", "is", null).gte("service_month", months[0]).lte("service_month", months[11]).neq("status", "void"),
-  ]);
-  const recurringInvoiced = new Map((recurringInvoices.data ?? []).map((i) => [`${i.recurring_invoice_id}:${i.service_month}`, i]));
-  const [accounts, invoices, events] = await Promise.all([
     supabase
       .from("billing_accounts")
       .select("id, go_live_service_month, property:properties(name, unit_count), customer:customers(id, name), contracts(*, phases:contract_phases(*), event_rates:contract_event_rates(*))")
       .eq("status", "active"),
     supabase.from("invoices").select("account_id, service_month, service_category, total_cents, status").eq("kind", "scheduled").gte("service_month", months[0]).lte("service_month", months[11]).neq("status", "void"),
-    supabase.from("billable_events").select("id, account_id, event_date, event_type, time_window, quantity, description").neq("status", "rejected").gte("event_date", months[0]).lte("event_date", `${year}-12-31`),
+    supabase.from("billable_events").select("id, account_id, event_date, event_type, time_window, quantity, rate_cents, description").neq("status", "rejected").gte("event_date", months[0]).lte("event_date", `${year}-12-31`),
   ]);
+  const recurringInvoiced = new Map((recurringInvoices.data ?? []).map((i) => [`${i.recurring_invoice_id}:${i.service_month}`, i]));
   const list = ((accounts.data ?? []) as unknown as Account[]).sort(
     (a, b) => a.customer.name.localeCompare(b.customer.name) || a.property.name.localeCompare(b.property.name),
   );
