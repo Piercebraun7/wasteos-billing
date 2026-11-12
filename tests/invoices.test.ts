@@ -287,3 +287,45 @@ describe("removing a property", () => {
     });
   });
 });
+
+describe("recurring invoices", () => {
+  const template = async () =>
+    (await one<{ id: string }>(
+      "insert into public.recurring_invoices (account_id, name, day_of_month, start_month, lines) values ($1, 'Monthly bulk', 10, '2026-11-01', $2) returning id",
+      [account, JSON.stringify([{ description: "Scheduled Bulk Waste Service", quantity: "1", unit_price_cents: 35000 }])],
+    )).id;
+  const fromTemplate = (id: string, month: string) =>
+    JSON.stringify({ ...JSON.parse(draft(month)), kind: "ad_hoc", service_category: "bulk", recurring_invoice_id: id, invoice_date: month.slice(0, 8) + "10" });
+
+  it("produces one invoice per month and no more", async () => {
+    await as(db, admin, async () => {
+      const id = await template();
+      await db.query("select public.create_draft_invoice($1)", [fromTemplate(id, "2026-11-01")]);
+      await db.query("select public.create_draft_invoice($1)", [fromTemplate(id, "2026-12-01")]);
+      const n = Number((await one<{ n: number }>("select count(*) n from public.invoices where recurring_invoice_id = $1", [id])).n);
+      expect(n).toBe(2);
+    });
+    await expect(
+      as(db, admin, async () => {
+        const id = await template();
+        await db.query("select public.create_draft_invoice($1)", [fromTemplate(id, "2026-11-01")]);
+        await db.query("select public.create_draft_invoice($1)", [fromTemplate(id, "2026-11-01")]);
+      }),
+    ).rejects.toThrow(/duplicate key/);
+  });
+
+  it("only allows a day from 1 to 28, so every month has that day", async () => {
+    await expect(
+      as(db, admin, () => db.query("insert into public.recurring_invoices (account_id, name, day_of_month, start_month, lines) values ($1, 'x', 31, '2026-11-01', '[{}]')", [account])),
+    ).rejects.toThrow(/check constraint/);
+  });
+
+  it("is removed with a property that was never invoiced", async () => {
+    await as(db, admin, async () => {
+      const acct = (await one<{ id: string }>("select public.create_billing_account($1) as id", [JSON.stringify({ customer_name: "Tmp", property: { name: "Tmp Recurring" }, contract: { billing_model: "per_event" } })])).id;
+      await db.query("insert into public.recurring_invoices (account_id, name, day_of_month, start_month, lines) values ($1, 'x', 5, '2026-11-01', '[{}]')", [acct]);
+      expect((await one<{ r: string }>("select public.delete_billing_account($1) as r", [acct])).r).toBe("deleted");
+      expect(Number((await one<{ n: number }>("select count(*) n from public.recurring_invoices where account_id = $1", [acct])).n)).toBe(0);
+    });
+  });
+});

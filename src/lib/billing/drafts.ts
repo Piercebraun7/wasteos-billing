@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { lineAmountCents } from "../money";
 import { categoryOfModel, SERVICES, type ServiceCategory } from "../services";
-import { addDays, monthEnd, monthLabel, monthStart, type ISODate } from "./dates";
+import { addDays, daysInMonth, iso, monthEnd, monthLabel, monthStart, parts, type ISODate } from "./dates";
 import {
   applyTax,
   eventLines,
@@ -74,6 +75,11 @@ export async function generateDrafts(supabase: SupabaseClient, serviceMonth: ISO
   run.created.push(...loggedWork.created);
   run.skipped.push(...loggedWork.skipped);
   const loggedWorkHandled = new Set(loggedWork.skippedAccounts);
+
+  // Recurring invoices: one draft each for this month, dated on its chosen day.
+  const recurring = await draftRecurring(supabase, first);
+  run.created.push(...recurring.created);
+  run.skipped.push(...recurring.skipped);
 
   const alreadyInvoiced = new Set((existing.data ?? []).map((r) => `${r.account_id}:${r.service_category ?? ""}`));
   const rows = (accounts.data ?? []) as unknown as AccountRow[];
@@ -237,6 +243,98 @@ export async function draftLoggedWork(supabase: SupabaseClient, accountId?: stri
       if (error) run.skipped.push({ property: account.property.name, reason: error.message });
       else run.created.push(data as string);
     }
+  }
+  return run;
+}
+
+export type RecurringLine = { service_item_id?: string | null; description: string; quantity: string; unit_price_cents: number };
+
+/** The date a recurring invoice falls on in a given month. */
+export function recurringDate(month: ISODate, dayOfMonth: number): ISODate {
+  const { y, m } = parts(month);
+  return iso(y, m, Math.min(dayOfMonth, daysInMonth(y, m)));
+}
+
+/** Lines and total for a recurring invoice. Returns null if a line cannot be priced. */
+export function recurringCharges(lines: RecurringLine[], date: ISODate): { lines: Record<string, unknown>[]; total: number } | null {
+  const out: Record<string, unknown>[] = [];
+  let total = 0;
+  for (const l of lines) {
+    const amount = lineAmountCents(String(l.quantity ?? "1"), Number(l.unit_price_cents));
+    if (amount === null) return null;
+    total += amount;
+    out.push({
+      line_type: amount < 0 ? "adjustment" : "per_event",
+      description: l.description,
+      quantity: String(l.quantity ?? "1"),
+      unit_price_cents: Number(l.unit_price_cents),
+      amount_cents: amount,
+      service_item_id: l.service_item_id ?? "",
+      period_start: date,
+      period_end: date,
+    });
+  }
+  return { lines: out, total };
+}
+
+/**
+ * Drafts this month's invoice from every active recurring invoice whose
+ * property has billing switched on. Each is made at most once per month.
+ */
+export async function draftRecurring(supabase: SupabaseClient, serviceMonth: ISODate): Promise<DraftRun> {
+  const first = monthStart(serviceMonth);
+  const run: DraftRun = { created: [], skipped: [] };
+  const [templates, done] = await Promise.all([
+    supabase
+      .from("recurring_invoices")
+      .select("*, account:billing_accounts(id, status, go_live_service_month, property:properties(name), contracts(status))")
+      .eq("status", "active")
+      .lte("start_month", first),
+    supabase.from("invoices").select("recurring_invoice_id").eq("service_month", first).not("recurring_invoice_id", "is", null).neq("status", "void"),
+  ]);
+  if (templates.error) throw new Error(templates.error.message);
+  if (done.error) throw new Error(done.error.message);
+  const made = new Set((done.data ?? []).map((r) => r.recurring_invoice_id as string));
+
+  type Template = {
+    id: string; account_id: string; name: string; service_category: string; day_of_month: number; net_days: number; memo: string | null; lines: RecurringLine[];
+    account: { id: string; status: string; go_live_service_month: ISODate | null; property: { name: string }; contracts: { status: string }[] };
+  };
+  for (const t of (templates.data ?? []) as unknown as Template[]) {
+    if (made.has(t.id) || t.account.status !== "active") continue;
+    if (!t.account.contracts.some((c) => c.status === "active")) continue; // Billing is off for the property.
+    const label = `${t.account.property.name} (${t.name})`;
+    if (!mayInvoice(first, t.account.go_live_service_month)) {
+      run.skipped.push({
+        property: label,
+        reason: t.account.go_live_service_month ? `Its first month here is ${monthLabel(t.account.go_live_service_month)}.` : "No first service month is set.",
+      });
+      continue;
+    }
+    const date = recurringDate(first, t.day_of_month);
+    const charges = recurringCharges(t.lines, date);
+    if (!charges || charges.total <= 0) {
+      run.skipped.push({ property: label, reason: "Its lines do not add up to an amount above zero." });
+      continue;
+    }
+    const { data, error } = await supabase.rpc("create_draft_invoice", {
+      p: {
+        account_id: t.account_id,
+        service_month: first,
+        invoice_date: date,
+        due_date: addDays(date, t.net_days),
+        subtotal_cents: charges.total,
+        tax_cents: 0,
+        total_cents: charges.total,
+        kind: "ad_hoc",
+        service_category: t.service_category,
+        memo: t.memo ?? "",
+        recurring_invoice_id: t.id,
+        lines: charges.lines,
+      },
+    });
+    if (error) run.skipped.push({ property: label, reason: error.message });
+    else run.created.push(data as string);
   }
   return run;
 }

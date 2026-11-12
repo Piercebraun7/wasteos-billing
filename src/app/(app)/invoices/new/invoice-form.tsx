@@ -28,12 +28,14 @@ export function InvoiceForm({
   today,
   defaultNetDays,
   preselected,
+  bulkRates,
 }: {
   accounts: Account[];
   items: Item[];
   today: string;
   defaultNetDays: number;
   preselected: string;
+  bulkRates: Record<string, number>;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -42,6 +44,7 @@ export function InvoiceForm({
   const [invoiceDate, setInvoiceDate] = useState(today);
   const [netDays, setNetDays] = useState(defaultNetDays);
   const [lines, setLines] = useState<Line[]>(() => [blank()]);
+  const [repeat, setRepeat] = useState(false);
 
   const selected = accounts.find((a) => a.account_id === accountId);
   const matches = useMemo(() => {
@@ -59,10 +62,11 @@ export function InvoiceForm({
   const update = (key: number, patch: Partial<Line>) => setLines((rows) => rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   function chooseItem(key: number, itemId: string) {
     const item = items.find((i) => i.id === itemId);
-    update(key, {
-      item: itemId,
-      ...(item ? { description: item.description || item.name, rate: item.default_rate_cents != null ? (item.default_rate_cents < 0 ? "-" : "") + centsToInput(Math.abs(item.default_rate_cents)) : "" } : {}),
-    });
+    if (!item) return update(key, { item: itemId });
+    // Bulk work uses this property's normal price when it has one, otherwise the list price.
+    const preset = item.category === "bulk" && item.default_rate_cents !== null ? bulkRates[accountId] : undefined;
+    const cents = preset ?? item.default_rate_cents;
+    update(key, { item: itemId, description: item.description || item.name, rate: cents != null ? (cents < 0 ? "-" : "") + centsToInput(Math.abs(cents)) : "" });
   }
 
   function submit(intent: "draft" | "approve", form: HTMLFormElement) {
@@ -204,6 +208,26 @@ export function InvoiceForm({
             <span className="font-display text-3xl font-extrabold tabular-nums text-ink">{formatCents(total)}</span>
           </p>
         </div>
+      </Card>
+
+      <Card title="Repeat">
+        <label className="flex items-center gap-3 text-[15px] text-slate-700">
+          <input type="checkbox" name="repeat" checked={repeat} onChange={(e) => setRepeat(e.target.checked)} className="size-5" />
+          Repeat this invoice every month
+        </label>
+        {repeat && (
+          <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_12rem]">
+            <Field label="Name for the schedule" hint="How it is labelled on the schedule of billing.">
+              <input name="repeat_name" placeholder="For example: Monthly bulk trash" className={inputClass} />
+            </Field>
+            <Field label="Day of the month" hint="1 to 28.">
+              <input name="repeat_day" inputMode="numeric" defaultValue={Math.min(28, Number(invoiceDate.slice(8, 10)) || 1)} className={inputClass} />
+            </Field>
+            <p className="text-sm text-mute sm:col-span-2">
+              This invoice is created now. Starting next month, a draft with the same lines appears in the review queue on that day, where you can adjust it before approving.
+            </p>
+          </div>
+        )}
       </Card>
 
       <Card title="Message on the invoice (optional)">

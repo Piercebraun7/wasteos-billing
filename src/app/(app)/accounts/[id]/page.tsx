@@ -5,8 +5,12 @@ import { SubmitButton } from "@/components/submit-button";
 import { requireAdmin } from "@/lib/auth";
 import { monthLabel } from "@/lib/billing/dates";
 import { BILLING_MODELS, EVENT_TYPES, formatDate, usesPhases } from "@/lib/format";
-import { bpsToInput, centsToInput, formatCents } from "@/lib/money";
+import { bpsToInput, centsToInput, formatCents, lineAmountCents } from "@/lib/money";
 import {
+  addMonthlyBulk,
+  removeRecurring,
+  setRecurringStatus,
+  updateBulkRate,
   removeProperty,
   addBillableEvent,
   addBulkService,
@@ -92,6 +96,11 @@ export default async function AccountPage({
   const { saved, error: errorMessage } = await searchParams;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
 
+  const recurringRes = await supabase.from("recurring_invoices").select("*").eq("account_id", id).order("created_at");
+  const recurring = (recurringRes.data ?? []) as {
+    id: string; name: string; service_category: string; day_of_month: number; status: string;
+    lines: { description: string; quantity: string; unit_price_cents: number }[];
+  }[];
   const [templates, invoicesRes, eventsRes] = await Promise.all([
     supabase.from("late_fee_templates").select("id, name").not("confirmed_at", "is", null).order("name"),
     supabase.from("invoices").select("id, invoice_number, service_month, due_date, status, total_cents").eq("account_id", id).order("service_month", { ascending: false }),
@@ -123,7 +132,8 @@ export default async function AccountPage({
   );
   const byAge = [...account.contracts].sort((a, b) => a.created_at.localeCompare(b.created_at));
   const contract = byAge.find((c) => usesPhases(c.billing_model)) ?? byAge[0];
-  const bulk = byAge.find((c) => c.id !== contract?.id && c.service_category === "bulk");
+  const bulk = byAge.find((c) => c.service_category === "bulk");
+  const bulkRate = bulk?.event_rates.find((r) => r.event_type === "bulk_pickup");
   const phases = contract ? [...contract.phases].sort((a, b) => a.effective_start.localeCompare(b.effective_start)) : [];
   const balance = Number(overview.data?.balance_cents ?? 0);
   const hidden = <input type="hidden" name="account_id" value={account.id} />;
@@ -477,24 +487,81 @@ export default async function AccountPage({
           </Card>
 
           <Card
-            title="Bulk trash service"
-            description="Billed per load on its own invoice, separate from the monthly service. The account balance covers both."
+            title="Bulk trash"
+            description="Billed on its own invoice, separate from the monthly service. Set the normal price once and every bulk invoice for this property starts from it."
           >
-            {bulk ? (
-              <p className="text-[15px] text-slate-700">
-                {bulk.event_rates.map((r) => `${formatCents(r.rate_cents)} per load`).join(", ") || "No rate set"}
-                {bulk.expected_monthly_cents != null && ` · a usual month is ${formatCents(Number(bulk.expected_monthly_cents))}`}
-                <span className="text-mute"> · {bulk.status === "active" ? "billing on" : "billing off"}</span>
-              </p>
-            ) : contract.service_category === "bulk" ? (
-              <p className="text-sm text-mute">This property is a bulk trash customer. Its rate is under Rates for one-off work.</p>
-            ) : (
-              <form action={addBulkService} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+            {bulkRate ? (
+              <form action={updateBulkRate} className="flex flex-wrap items-end gap-2">
                 {hidden}
-                <input name="rate" inputMode="decimal" defaultValue="350.00" aria-label="Price per load in dollars" placeholder="$ per load" className={inputClass} />
-                <input name="loads" inputMode="decimal" defaultValue="1" aria-label="Usual loads per month" placeholder="Usual loads per month" className={inputClass} />
+                <input type="hidden" name="rate_id" value={bulkRate.id} />
+                <Field label="Normal price per load">
+                  <input name="rate" inputMode="decimal" defaultValue={centsToInput(bulkRate.rate_cents)} className={`${inputClass} w-40 text-right tabular-nums`} />
+                </Field>
+                <SubmitButton className={secondaryButton}>Save price</SubmitButton>
+              </form>
+            ) : (
+              <form action={addBulkService} className="flex flex-wrap items-end gap-2">
+                {hidden}
+                <input type="hidden" name="loads" value="1" />
+                <Field label="Normal price per load">
+                  <input name="rate" inputMode="decimal" defaultValue="350.00" className={`${inputClass} w-40 text-right tabular-nums`} />
+                </Field>
                 <SubmitButton className={primaryButton}>Add bulk trash</SubmitButton>
               </form>
+            )}
+
+            {bulkRate && !recurring.some((r) => r.service_category === "bulk") && (
+              <form action={addMonthlyBulk} className="mt-5 flex flex-wrap items-end gap-2 border-t border-line pt-5">
+                {hidden}
+                <input type="hidden" name="rate" value={centsToInput(bulkRate.rate_cents)} />
+                <Field label="Bill it every month on day">
+                  <input name="day" inputMode="numeric" defaultValue="10" className={`${inputClass} w-28`} />
+                </Field>
+                <Field label="Usual loads">
+                  <input name="loads" inputMode="decimal" defaultValue="1" className={`${inputClass} w-28`} />
+                </Field>
+                <SubmitButton className={primaryButton}>Make it monthly</SubmitButton>
+              </form>
+            )}
+          </Card>
+
+          <Card title="Recurring invoices" description="Each one drafts an invoice every month on its day, for you to review and approve. They appear on the schedule of billing.">
+            {recurring.length === 0 ? (
+              <p className="text-sm text-mute">
+                None yet. Use Make it monthly above for bulk trash, or tick Repeat on <Link href={`/invoices/new?account=${account.id}`} className="font-medium text-ink underline">Create invoice</Link> for anything else.
+              </p>
+            ) : (
+              <ul className="divide-y divide-line">
+                {recurring.map((r) => {
+                  const total = r.lines.reduce((sum, l) => sum + (lineAmountCents(String(l.quantity), Number(l.unit_price_cents)) ?? 0), 0);
+                  return (
+                    <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                      <div>
+                        <p className="font-medium text-ink">
+                          {r.name} <span className="font-normal text-mute">· {formatCents(total)} on day {r.day_of_month} of each month</span>
+                        </p>
+                        <p className="text-sm text-mute">
+                          {r.lines.map((l) => `${l.description}, ${l.quantity} at ${formatCents(Number(l.unit_price_cents))}`).join("; ")}
+                          {r.status === "paused" && " · paused"}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <form action={setRecurringStatus}>
+                          {hidden}
+                          <input type="hidden" name="recurring_id" value={r.id} />
+                          <input type="hidden" name="to" value={r.status === "paused" ? "active" : "paused"} />
+                          <SubmitButton className={secondaryButton}>{r.status === "paused" ? "Resume" : "Pause"}</SubmitButton>
+                        </form>
+                        <form action={removeRecurring}>
+                          {hidden}
+                          <input type="hidden" name="recurring_id" value={r.id} />
+                          <SubmitButton className={dangerButton}>Remove</SubmitButton>
+                        </form>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </Card>
 

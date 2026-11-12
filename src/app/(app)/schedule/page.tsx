@@ -5,7 +5,7 @@ import { requireAdmin } from "@/lib/auth";
 import { todayInPhoenix } from "@/lib/billing/dates";
 import { divideRoundHalfUp, rateFor, type BillingModel, type EventRate, type Phase } from "@/lib/billing/invoice-math";
 import { monthsOfYear, scheduleCell } from "@/lib/billing/schedule";
-import { formatCents } from "@/lib/money";
+import { formatCents, lineAmountCents } from "@/lib/money";
 import { categoryOfModel, isServiceCategory, SERVICE_ORDER, SERVICES, type ServiceCategory } from "@/lib/services";
 import { toggleBilling, turnOnAllBilling } from "../accounts/actions";
 
@@ -48,6 +48,11 @@ export default async function SchedulePage({
   const months = monthsOfYear(year);
   const view: ServiceCategory | "all" = isServiceCategory(query.service) ? query.service : "all";
 
+  const [recurringRes, recurringInvoices] = await Promise.all([
+    supabase.from("recurring_invoices").select("*").eq("status", "active"),
+    supabase.from("invoices").select("recurring_invoice_id, service_month, total_cents").not("recurring_invoice_id", "is", null).gte("service_month", months[0]).lte("service_month", months[11]).neq("status", "void"),
+  ]);
+  const recurringInvoiced = new Map((recurringInvoices.data ?? []).map((i) => [`${i.recurring_invoice_id}:${i.service_month}`, i]));
   const [accounts, invoices, events] = await Promise.all([
     supabase
       .from("billing_accounts")
@@ -61,10 +66,13 @@ export default async function SchedulePage({
   );
   const invoiced = new Map((invoices.data ?? []).map((i) => [`${i.account_id}:${i.service_category ?? ""}:${i.service_month}`, i]));
 
+  const hasRecurring = (accountId: string, category: string) =>
+    ((recurringRes.data ?? []) as { account_id: string; service_category: string }[]).some((r) => r.account_id === accountId && r.service_category === category);
+
   // One row per property, per service.
   const rows = list.flatMap((account) => {
     const contracts = account.contracts.filter((c) => c.status !== "ended").sort((a, b) => a.created_at.localeCompare(b.created_at));
-    return contracts.map((contract, index) => {
+    const perContract = contracts.map((contract, index) => {
       const category = contract.service_category ?? categoryOfModel(contract.billing_model);
       const eventBased = contract.billing_model === "per_event" || contract.billing_model === "as_needed";
       const cells: Cell[] = months.map((month) => {
@@ -82,12 +90,34 @@ export default async function SchedulePage({
           sum += divideRoundHalfUp(rate * Math.round(Number(e.quantity) * 100), 100);
         }
         const started = !contract.start_date || month >= `${contract.start_date.slice(0, 7)}-01`;
-        const estimate = !any && started && month >= thisMonth && contract.expected_monthly_cents != null;
+        // A recurring invoice for the same service already shows the usual month, so no estimate is added on top.
+        const estimate = !any && started && month >= thisMonth && contract.expected_monthly_cents != null && !hasRecurring(account.id, category);
         return { month, amountCents: any ? sum : estimate ? Number(contract.expected_monthly_cents) : null, units: null, free: false, partial: false, phaseStarts: false, estimate };
       });
       const peak = Math.max(1, ...cells.map((c) => c.amountCents ?? 0));
-      return { account, contract, category, cells, peak, first: index === 0, live: contract.status === "active", total: cells.reduce((sum, c) => sum + (c.amountCents ?? 0), 0) };
+      return {
+        key: contract.id, account, category, cells, peak, first: index === 0, live: contract.status === "active",
+        total: cells.reduce((sum, c) => sum + (c.amountCents ?? 0), 0),
+        note: category === "valet" && account.property.unit_count ? `${account.property.unit_count} units` : "",
+        recurringId: null as string | null,
+        // A per-job service with nothing logged and no usual month has nothing to show.
+        empty: eventBased && cells.every((c) => c.amountCents === null),
+      };
     });
+    // Recurring invoices: the same amount on the same day every month.
+    type Recurring = { id: string; account_id: string; name: string; service_category: string; day_of_month: number; start_month: string; lines: { quantity: string; unit_price_cents: number }[] };
+    const repeating = ((recurringRes.data ?? []) as Recurring[]).filter((r) => r.account_id === account.id).map((r) => {
+      const amount = r.lines.reduce((sum, l) => sum + (lineAmountCents(String(l.quantity), Number(l.unit_price_cents)) ?? 0), 0);
+      const cells: Cell[] = months.map((month) => ({ month, amountCents: month >= r.start_month ? amount : null, units: null, free: false, partial: false, phaseStarts: false, estimate: false }));
+      return {
+        key: r.id, account, category: (isServiceCategory(r.service_category) ? r.service_category : "other") as ServiceCategory, cells, peak: Math.max(1, amount),
+        first: false, live: contracts.some((c) => c.status === "active"), total: cells.reduce((sum, c) => sum + (c.amountCents ?? 0), 0),
+        note: `${r.name}, day ${r.day_of_month}`, recurringId: r.id as string | null, empty: false,
+      };
+    });
+    const all = [...perContract, ...repeating].filter((row) => !row.empty);
+    if (all.length > 0 && !all.some((row) => row.first)) all[0].first = true;
+    return all;
   });
   const shown = rows.filter((r) => view === "all" || r.category === view);
   const columnTotals = months.map((_, i) => shown.reduce((sum, r) => sum + (r.cells[i].amountCents ?? 0), 0));
@@ -142,6 +172,7 @@ export default async function SchedulePage({
         <li className="flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-ink" /> Rate or unit change</li>
         <li className="flex items-center gap-1.5"><span className="font-semibold text-emerald-600">&#10003;</span> Invoiced</li>
         <li className="flex items-center gap-1.5"><span className="italic">est.</span> Usual month for work billed per load</li>
+        <li>Recurring invoices show their name and day of the month</li>
       </ul>
 
       {shown.length === 0 ? (
@@ -160,12 +191,12 @@ export default async function SchedulePage({
               <div className="px-4 py-3 text-right">{year} total</div>
             </div>
 
-            {shown.map(({ account, contract, category, cells, peak, total, live, first }, index) => {
+            {shown.map(({ key, account, category, cells, peak, total, live, first, note, recurringId }, index) => {
               const newClient = index === 0 || shown[index - 1].account.customer.id !== account.customer.id;
               const service = SERVICES[category];
               const showSwitch = first || view !== "all";
               return (
-                <div key={contract.id}>
+                <div key={key}>
                   {newClient && (
                     <div className="border-b border-line bg-ink px-5 py-2 font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-white/70">
                       <span className="sticky left-5">{account.customer.name}</span>
@@ -179,7 +210,7 @@ export default async function SchedulePage({
                           <span className="block truncate font-medium text-ink">{account.property.name}</span>
                           <span className="block truncate text-xs" style={{ color: service.hex }}>
                             <span className="font-semibold">{service.label}</span>
-                            {category === "valet" && account.property.unit_count ? <span className="text-mute"> · {account.property.unit_count} units</span> : null}
+                            {note ? <span className="text-mute"> · {note}</span> : null}
                           </span>
                         </span>
                       </Link>
@@ -199,7 +230,7 @@ export default async function SchedulePage({
                       )}
                     </div>
                     {cells.map((cell) => {
-                      const invoice = invoiced.get(`${account.id}:${category}:${cell.month}`);
+                      const invoice = recurringId ? recurringInvoiced.get(`${recurringId}:${cell.month}`) : invoiced.get(`${account.id}:${category}:${cell.month}`);
                       const billable = live && account.go_live_service_month !== null && cell.month >= account.go_live_service_month;
                       const strength = cell.amountCents ? 0.08 + 0.22 * (cell.amountCents / peak) : 0;
                       return (

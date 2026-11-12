@@ -5,10 +5,10 @@ import { requireAdmin } from "@/lib/auth";
 import { monthEnd, monthLabel, todayInPhoenix } from "@/lib/billing/dates";
 import { formatDate } from "@/lib/format";
 import { centsToInput, formatCents } from "@/lib/money";
-import { isServiceCategory, SERVICES } from "@/lib/services";
+import { isServiceCategory, SERVICE_ORDER, SERVICES, type ServiceCategory } from "@/lib/services";
 import { approveAll, approveInvoice, generateDraftsAction, rejectDraft, setNextInvoiceNumber, updateDraftLine } from "./actions";
 
-type Line = { id: string; description: string; amount_cents: number; sort_order: number; contract_phase_id: string | null; line_type: string };
+type Line = { id: string; description: string; amount_cents: number; quantity: number; unit_price_cents: number; sort_order: number; contract_phase_id: string | null; line_type: string };
 type Draft = {
   id: string;
   account_id: string;
@@ -18,15 +18,17 @@ type Draft = {
   total_cents: number;
   kind: string;
   service_category: string | null;
+  recurring_invoice_id: string | null;
   memo: string | null;
   lines: Line[];
   account: { property: { id: string; name: string }; customer: { name: string }; contacts: { id: string }[] };
 };
 type Posted = { id: string; account_id: string; invoice_number: number | null; service_month: string; total_cents: number; origin: string; kind: string; service_category: string | null; lines: Line[] };
 
-export default async function ReviewPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
+export default async function ReviewPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string; service?: string }> }) {
   const { supabase } = await requireAdmin();
-  const { saved, error: errorMessage } = await searchParams;
+  const { saved, error: errorMessage, service } = await searchParams;
+  const view: ServiceCategory | "all" = isServiceCategory(service) ? service : "all";
 
   const [draftsRes, postedRes, settings, discrepancies] = await Promise.all([
     supabase
@@ -38,7 +40,9 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
     supabase.from("app_settings").select("next_invoice_number").maybeSingle(),
     supabase.from("source_discrepancies").select("property_id").is("resolved_at", null),
   ]);
-  const drafts = ((draftsRes.data ?? []) as unknown as Draft[]).sort((a, b) => a.account.property.name.localeCompare(b.account.property.name));
+  const allDrafts = ((draftsRes.data ?? []) as unknown as Draft[]).sort((a, b) => a.account.property.name.localeCompare(b.account.property.name));
+  const categoryOf = (d: Draft): ServiceCategory => (isServiceCategory(d.service_category) ? d.service_category : "other");
+  const drafts = allDrafts.filter((d) => view === "all" || categoryOf(d) === view);
   const posted = (postedRes.data ?? []) as unknown as Posted[];
   const unresolved = new Set((discrepancies.data ?? []).map((d) => d.property_id as string));
   const nextNumber = settings.data?.next_invoice_number as number | null | undefined;
@@ -76,14 +80,35 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-        <Eyebrow>
-          {drafts.length} draft{drafts.length === 1 ? "" : "s"} · {formatCents(total)}
-        </Eyebrow>
-        {drafts.length > 1 && (
-          <form action={approveAll}>
-            <SubmitButton className={primaryButton}>Approve all {drafts.length}</SubmitButton>
-          </form>
-        )}
+        <div className="flex flex-wrap gap-1 rounded-full border border-line bg-white p-1">
+          {(["all", ...SERVICE_ORDER] as const).map((key) => {
+            const count = key === "all" ? allDrafts.length : allDrafts.filter((d) => categoryOf(d) === key).length;
+            if (key === "other" && count === 0) return null;
+            return (
+              <Link
+                key={key}
+                href={key === "all" ? "/review" : `/review?service=${key}`}
+                aria-current={view === key ? "page" : undefined}
+                className={`flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-medium transition ${view === key ? "bg-ink text-white" : "text-slate-600 hover:bg-slate-100"}`}
+              >
+                {key !== "all" && <span className="size-2.5 rounded-full" style={{ backgroundColor: SERVICES[key].hex }} aria-hidden />}
+                {key === "all" ? "All" : SERVICES[key].label}
+                <span className={`tabular-nums ${view === key ? "text-white/60" : "text-mute"}`}>{count}</span>
+              </Link>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-4">
+          <Eyebrow>{formatCents(total)}</Eyebrow>
+          {drafts.length > 1 && (
+            <form action={approveAll}>
+              <input type="hidden" name="service" value={view} />
+              <SubmitButton className={primaryButton}>
+                Approve {drafts.length} {view === "all" ? "" : `${SERVICES[view].short.toLowerCase()} `}drafts
+              </SubmitButton>
+            </form>
+          )}
+        </div>
       </div>
 
       {drafts.length === 0 && <Empty>No drafts waiting. Generate drafts for a service month to fill the queue.</Empty>}
@@ -109,7 +134,7 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
               <div>
                 <Eyebrow>
                   <span className="mr-2 inline-block size-2 rounded-full align-middle" style={{ backgroundColor: SERVICES[isServiceCategory(d.service_category) ? d.service_category : "other"].hex }} aria-hidden />
-                  {SERVICES[isServiceCategory(d.service_category) ? d.service_category : "other"].label} · {oneOff ? `one-off, dated ${formatDate(d.invoice_date)}` : monthLabel(d.service_month)} · due {formatDate(d.due_date)}
+                  {SERVICES[isServiceCategory(d.service_category) ? d.service_category : "other"].label} · {oneOff ? `${d.recurring_invoice_id ? "recurring" : "one-off"}, dated ${formatDate(d.invoice_date)}` : monthLabel(d.service_month)} · due {formatDate(d.due_date)}
                 </Eyebrow>
                 <h2 className="mt-1.5 text-xl font-semibold tracking-tight text-ink">
                   <Link href={`/accounts/${d.account_id}`} className="hover:underline">{d.account.property.name}</Link>
@@ -131,11 +156,19 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
                 <Eyebrow>This draft</Eyebrow>
                 <div className="mt-3 space-y-2">
                   {lines.map((l) => (
-                    <form key={l.id} action={updateDraftLine} className="grid gap-2 sm:grid-cols-[1fr_7.5rem_auto]">
+                    <form key={l.id} action={updateDraftLine} className={`grid gap-2 ${l.line_type === "per_event" ? "sm:grid-cols-[1fr_4.5rem_6.5rem_auto]" : "sm:grid-cols-[1fr_7.5rem_auto]"}`}>
                       <input type="hidden" name="invoice_id" value={d.id} />
                       <input type="hidden" name="line_id" value={l.id} />
+                      <input type="hidden" name="return_service" value={view} />
                       <input name="description" defaultValue={l.description} aria-label="Line description" className={inputClass} />
-                      <input name="amount" inputMode="decimal" defaultValue={centsToInput(Number(l.amount_cents))} aria-label="Line amount in dollars" className={`${inputClass} text-right tabular-nums`} />
+                      {l.line_type === "per_event" ? (
+                        <>
+                          <input name="quantity" inputMode="decimal" defaultValue={Number(l.quantity)} aria-label="Quantity" title="Quantity" className={`${inputClass} text-right tabular-nums`} />
+                          <input name="rate" inputMode="decimal" defaultValue={centsToInput(Number(l.unit_price_cents))} aria-label="Rate in dollars" title="Rate" className={`${inputClass} text-right tabular-nums`} />
+                        </>
+                      ) : (
+                        <input name="amount" inputMode="decimal" defaultValue={centsToInput(Number(l.amount_cents))} aria-label="Line amount in dollars" className={`${inputClass} text-right tabular-nums`} />
+                      )}
                       <SubmitButton className={secondaryButton}>Save</SubmitButton>
                     </form>
                   ))}
@@ -163,7 +196,7 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
                     </p>
                   </div>
                 ) : (
-                  <p className="mt-3 text-sm text-mute">{oneOff ? (d.memo ?? "A one-off invoice, so there is nothing to compare it with.") : "None in this app yet. QuickBooks history will appear here once it is imported."}</p>
+                  <p className="mt-3 text-sm text-mute">{oneOff ? (d.memo ?? (d.recurring_invoice_id ? "Made from a recurring invoice. Change the quantity here if this month was different." : "A one-off invoice, so there is nothing to compare it with.")) : "None in this app yet. QuickBooks history will appear here once it is imported."}</p>
                 )}
               </div>
             </div>
@@ -173,6 +206,7 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
               <div className="flex gap-2">
                 <form action={rejectDraft}>
                   <input type="hidden" name="invoice_id" value={d.id} />
+                  <input type="hidden" name="return_service" value={view} />
                   <SubmitButton className={dangerButton}>Reject</SubmitButton>
                 </form>
                 <form action={approveInvoice}>

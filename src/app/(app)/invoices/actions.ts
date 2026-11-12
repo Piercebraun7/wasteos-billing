@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import { approveOne } from "@/lib/billing/approve";
-import { addDays, monthStart } from "@/lib/billing/dates";
+import { addDays, monthEnd, monthStart } from "@/lib/billing/dates";
 import { lineAmountCents, parseSignedDollarsToCents } from "@/lib/money";
 import { isServiceCategory } from "@/lib/services";
 
@@ -100,6 +100,24 @@ export async function createInvoice(fd: FormData): Promise<FormResult> {
   });
   if (error) return { error: `The invoice was not saved: ${error.message}` };
   const invoiceId = data as string;
+
+  // Repeat every month: save these lines as a recurring invoice, starting next month.
+  if (fd.get("repeat") === "on") {
+    const day = Math.min(28, Math.max(1, Number(text(fd, "repeat_day")) || Number(invoiceDate.slice(8, 10))));
+    const start = addDays(monthEnd(invoiceDate), 1);
+    const saved = await supabase.from("recurring_invoices").insert({
+      account_id: accountId,
+      name: text(fd, "repeat_name") || String(lines[0].description),
+      service_category: category || "other",
+      day_of_month: day,
+      start_month: start,
+      net_days: Number(netDays),
+      memo: text(fd, "memo") || null,
+      lines: lines.map((l) => ({ service_item_id: l.service_item_id || null, description: l.description, quantity: l.quantity, unit_price_cents: l.unit_price_cents })),
+    });
+    if (saved.error) return { error: `The invoice was saved, but it could not be set to repeat: ${saved.error.message}` };
+    revalidatePath("/schedule");
+  }
   revalidatePath("/review");
   revalidatePath("/accounts");
 

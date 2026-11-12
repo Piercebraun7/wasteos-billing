@@ -5,23 +5,27 @@ import { requireAdmin } from "@/lib/auth";
 import { emailIsConnected } from "@/lib/email/resend";
 import { formatDate } from "@/lib/format";
 import { formatCents } from "@/lib/money";
+import { isServiceCategory, SERVICE_ORDER, SERVICES, type ServiceCategory } from "@/lib/services";
 import { sendAll, sendOne } from "./actions";
 
-type Invoice = { id: string; account_id: string; invoice_number: number; total_cents: number; due_date: string; kind: string };
+type Invoice = { id: string; account_id: string; invoice_number: number; total_cents: number; due_date: string; kind: string; service_category: string | null };
 type Account = { id: string; property: { name: string }; customer: { name: string }; contacts: { name: string; email: string; is_active: boolean; delivery: string }[] };
 type Log = { id: string; subject: string | null; recipients: string[]; sent_at: string; delivered_at: string | null; bounced_at: string | null; opened_at: string | null; provider_message_id: string | null };
 
-export default async function SendPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
+export default async function SendPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string; service?: string }> }) {
   const { supabase, name } = await requireAdmin();
-  const { saved, error } = await searchParams;
+  const { saved, error, service } = await searchParams;
+  const view: ServiceCategory | "all" = isServiceCategory(service) ? service : "all";
   const [invoicesRes, accountsRes, defaultsRes, logRes, settings] = await Promise.all([
-    supabase.from("invoices").select("id, account_id, invoice_number, total_cents, due_date, kind").eq("status", "approved").order("invoice_number"),
+    supabase.from("invoices").select("id, account_id, invoice_number, total_cents, due_date, kind, service_category").eq("status", "approved").order("invoice_number"),
     supabase.from("billing_accounts").select("id, property:properties(name), customer:customers(name), contacts:billing_contacts(name, email, is_active, delivery)"),
     supabase.from("account_send_defaults").select("*"),
     supabase.from("email_sends").select("*").order("sent_at", { ascending: false }).limit(60),
     supabase.from("app_settings").select("email_sender, copy_address").maybeSingle(),
   ]);
-  const invoices = (invoicesRes.data ?? []) as Invoice[];
+  const waiting = (invoicesRes.data ?? []) as Invoice[];
+  const categoryOf = (i: Invoice): ServiceCategory => (isServiceCategory(i.service_category) ? i.service_category : "other");
+  const invoices = waiting.filter((i) => view === "all" || categoryOf(i) === view);
   const accounts = new Map(((accountsRes.data ?? []) as unknown as Account[]).map((a) => [a.id, a]));
   const defaults = new Map((defaultsRes.data ?? []).map((d) => [d.account_id as string, d]));
   const groups = [...new Set(invoices.map((i) => i.account_id))]
@@ -48,7 +52,10 @@ export default async function SendPage({ searchParams }: { searchParams: Promise
         action={
           groups.length > 0 && connected ? (
             <form action={sendAll}>
-              <SubmitButton className={primaryButton}>Send all {groups.length}</SubmitButton>
+              <input type="hidden" name="service" value={view} />
+              <SubmitButton className={primaryButton}>
+                Send {groups.length} {view === "all" ? "" : `${SERVICES[view].short.toLowerCase()} `}email{groups.length === 1 ? "" : "s"}
+              </SubmitButton>
             </form>
           ) : undefined
         }
@@ -56,6 +63,25 @@ export default async function SendPage({ searchParams }: { searchParams: Promise
       {saved && <Notice kind="ok">{saved}</Notice>}
       {error && <Notice kind="error">{error}</Notice>}
       {!connected && <Notice kind="info">Email is not connected yet, so nothing can be sent. Everything else on this page works, and sending switches on once the one-time email setup is done.</Notice>}
+
+      <div className="flex w-fit flex-wrap gap-1 rounded-full border border-line bg-white p-1">
+        {(["all", ...SERVICE_ORDER] as const).map((key) => {
+          const count = key === "all" ? waiting.length : waiting.filter((i) => categoryOf(i) === key).length;
+          if (key === "other" && count === 0) return null;
+          return (
+            <Link
+              key={key}
+              href={key === "all" ? "/send" : `/send?service=${key}`}
+              aria-current={view === key ? "page" : undefined}
+              className={`flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-medium transition ${view === key ? "bg-ink text-white" : "text-slate-600 hover:bg-slate-100"}`}
+            >
+              {key !== "all" && <span className="size-2.5 rounded-full" style={{ backgroundColor: SERVICES[key].hex }} aria-hidden />}
+              {key === "all" ? "All" : SERVICES[key].label}
+              <span className={`tabular-nums ${view === key ? "text-white/60" : "text-mute"}`}>{count}</span>
+            </Link>
+          );
+        })}
+      </div>
 
       {groups.length === 0 && <Empty>Nothing is waiting to be sent. Approved invoices appear here.</Empty>}
 
@@ -86,6 +112,7 @@ export default async function SendPage({ searchParams }: { searchParams: Promise
 
             <form action={sendOne} className="mt-5 border-t border-line pt-5">
               <input type="hidden" name="account_id" value={account.id} />
+              <input type="hidden" name="service" value={view} />
               <Eyebrow>Send to</Eyebrow>
               {contacts.length === 0 && (
                 <p className="mt-2 text-sm text-red-700">

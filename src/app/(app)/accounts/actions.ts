@@ -558,3 +558,67 @@ export async function removeProperty(fd: FormData) {
       : `${name} was deleted.`;
   redirect(`/accounts?saved=${encodeURIComponent(message)}`);
 }
+
+/** Sets the property's normal price per load for bulk trash. */
+export async function updateBulkRate(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const accountId = text(fd, "account_id");
+  const rate = parseDollarsToCents(text(fd, "rate"));
+  if (rate === null) back(accountId, "error", "Enter the normal price per load, for example 350.00.");
+  const { error } = await supabase.from("contract_event_rates").update({ rate_cents: rate }).eq("id", text(fd, "rate_id"));
+  if (error) back(accountId, "error", error.message);
+  back(accountId, "saved", "Normal bulk price saved. New bulk invoices for this property will use it.");
+}
+
+/** Bills bulk trash every month on a chosen day, at the property's normal price. */
+export async function addMonthlyBulk(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const accountId = text(fd, "account_id");
+  const rate = parseDollarsToCents(text(fd, "rate"));
+  const loads = text(fd, "loads") || "1";
+  const day = Number(text(fd, "day"));
+  if (rate === null) back(accountId, "error", "Enter the price per load, for example 350.00.");
+  if (!/^\d+(\.\d{1,2})?$/.test(loads) || Number(loads) <= 0) back(accountId, "error", "Loads must be a number above zero, for example 1 or 1.5.");
+  if (!Number.isInteger(day) || day < 1 || day > 28) back(accountId, "error", "Choose a day of the month from 1 to 28.");
+  const item = await supabase.from("service_items").select("id, name").eq("name", "Scheduled Bulk Waste Service").maybeSingle();
+  const current = `${todayInPhoenix().slice(0, 7)}-01`;
+  const { error } = await supabase.from("recurring_invoices").insert({
+    account_id: accountId,
+    name: "Monthly bulk trash",
+    service_category: "bulk",
+    day_of_month: day,
+    start_month: current,
+    lines: [{ service_item_id: item.data?.id ?? null, description: "Scheduled Bulk Waste Service", quantity: loads, unit_price_cents: rate }],
+  });
+  if (error) back(accountId, "error", error.message);
+  revalidatePath("/schedule");
+  back(accountId, "saved", `Bulk trash will be drafted on day ${day} of every month. Change the loads on the draft in the review queue if a month is different.`);
+}
+
+export async function setRecurringStatus(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const accountId = text(fd, "account_id");
+  const pause = text(fd, "to") === "paused";
+  const { error } = await supabase.from("recurring_invoices").update({ status: pause ? "paused" : "active" }).eq("id", text(fd, "recurring_id"));
+  if (error) back(accountId, "error", error.message);
+  revalidatePath("/schedule");
+  back(accountId, "saved", pause ? "Paused. No new drafts will be made from it." : "Resumed.");
+}
+
+export async function removeRecurring(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const accountId = text(fd, "account_id");
+  const id = text(fd, "recurring_id");
+  const used = await supabase.from("invoices").select("id").eq("recurring_invoice_id", id).limit(1);
+  if (used.data?.length) {
+    // Invoices already made from it keep pointing at it, so it is paused instead of deleted.
+    const paused = await supabase.from("recurring_invoices").update({ status: "paused" }).eq("id", id);
+    if (paused.error) back(accountId, "error", paused.error.message);
+    revalidatePath("/schedule");
+    back(accountId, "saved", "It has already produced invoices, so it was paused instead of deleted. No new drafts will be made.");
+  }
+  const { error } = await supabase.from("recurring_invoices").delete().eq("id", id);
+  if (error) back(accountId, "error", error.message);
+  revalidatePath("/schedule");
+  back(accountId, "saved", "Recurring invoice removed.");
+}

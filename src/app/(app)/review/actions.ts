@@ -5,17 +5,28 @@ import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import { monthLabel } from "@/lib/billing/dates";
 import { generateDrafts } from "@/lib/billing/drafts";
-import { parseDollarsToCents } from "@/lib/money";
+import { lineAmountCents, parseDollarsToCents, parseSignedDollarsToCents } from "@/lib/money";
+import { isServiceCategory } from "@/lib/services";
 import { approveOne } from "@/lib/billing/approve";
 
 const text = (fd: FormData, key: string) => String(fd.get(key) ?? "").trim();
 
-function back(kind: "saved" | "error", message: string, to = "/review"): never {
+function backTo(to: string, kind: "saved" | "error", message: string): never {
   revalidatePath("/review");
   revalidatePath("/accounts");
   revalidatePath("/");
-  redirect(`${to}?${kind}=${encodeURIComponent(message)}`);
+  redirect(`${to}${to.includes("?") ? "&" : "?"}${kind}=${encodeURIComponent(message)}`);
 }
+
+function back(kind: "saved" | "error", message: string, to = "/review"): never {
+  return backTo(to, kind, message);
+}
+
+/** The queue a form was submitted from, so the person lands back in the same one. */
+const queueOf = (fd: FormData) => {
+  const service = text(fd, "return_service");
+  return isServiceCategory(service) ? `/review?service=${service}` : "/review";
+};
 
 export async function generateDraftsAction(fd: FormData) {
   const { supabase } = await requireAdmin();
@@ -52,9 +63,15 @@ export async function approveInvoice(fd: FormData) {
   back("saved", "Invoice approved and posted to the account.", `/invoices/${id}`);
 }
 
-export async function approveAll() {
+/** Approves every draft in the queue being looked at: one service, or all of them. */
+export async function approveAll(fd: FormData) {
   const { supabase } = await requireAdmin();
-  const { data, error } = await supabase.from("invoices").select("id").eq("status", "draft").order("created_at");
+  const service = text(fd, "service");
+  const home = isServiceCategory(service) ? `/review?service=${service}` : "/review";
+  const back = (kind: "saved" | "error", message: string): never => backTo(home, kind, message);
+  let query = supabase.from("invoices").select("id").eq("status", "draft").order("created_at");
+  if (isServiceCategory(service)) query = query.eq("service_category", service);
+  const { data, error } = await query;
   if (error) back("error", error.message);
   let approved = 0;
   const problems: string[] = [];
@@ -72,25 +89,36 @@ export async function approveAll() {
 
 export async function rejectDraft(fd: FormData) {
   const { supabase } = await requireAdmin();
+  const home = queueOf(fd);
   const { error } = await supabase.rpc("reject_draft", { p_invoice_id: text(fd, "invoice_id") });
-  if (error) back("error", error.message);
-  back("saved", "Draft rejected and removed. Generate drafts again to rebuild it from the contract.");
+  if (error) backTo(home, "error", error.message);
+  backTo(home, "saved", "Draft rejected and removed.");
 }
 
 export async function updateDraftLine(fd: FormData) {
   const { supabase } = await requireAdmin();
+  const home = queueOf(fd);
   const invoiceId = text(fd, "invoice_id");
   const description = text(fd, "description");
-  const amount = parseDollarsToCents(text(fd, "amount"));
-  if (!description) back("error", "A line needs a description.");
-  if (amount === null) back("error", "Enter the line amount, for example 1862.50.");
-  const { error } = await supabase
-    .from("invoice_lines")
-    .update({ description, amount_cents: amount })
-    .eq("id", text(fd, "line_id"))
-    .eq("invoice_id", invoiceId);
-  if (error) back("error", error.message);
+  if (!description) backTo(home, "error", "A line needs a description.");
+
+  // A priced line (so many loads at a rate) is changed by its quantity and rate; any other line by its amount.
+  const values: Record<string, unknown> = { description };
+  if (fd.has("rate")) {
+    const rate = parseSignedDollarsToCents(text(fd, "rate"));
+    const quantity = text(fd, "quantity") || "1";
+    if (rate === null) backTo(home, "error", "Enter the rate, for example 350.00.");
+    const amount = lineAmountCents(quantity, rate!);
+    if (amount === null || Number(quantity) <= 0) backTo(home, "error", "The quantity must be a number above zero, with at most two decimals.");
+    Object.assign(values, { quantity, unit_price_cents: rate, amount_cents: amount });
+  } else {
+    const amount = parseDollarsToCents(text(fd, "amount"));
+    if (amount === null) backTo(home, "error", "Enter the line amount, for example 1862.50.");
+    values.amount_cents = amount;
+  }
+  const { error } = await supabase.from("invoice_lines").update(values).eq("id", text(fd, "line_id")).eq("invoice_id", invoiceId);
+  if (error) backTo(home, "error", error.message);
   const recalc = await supabase.rpc("recalculate_draft", { p_invoice_id: invoiceId });
-  if (recalc.error) back("error", recalc.error.message);
-  back("saved", "Line updated.");
+  if (recalc.error) backTo(home, "error", recalc.error.message);
+  backTo(home, "saved", "Line updated.");
 }
