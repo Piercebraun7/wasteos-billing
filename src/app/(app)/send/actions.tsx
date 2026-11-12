@@ -41,7 +41,7 @@ async function sendForAccount(
   const [account, invoicesRes, settings, defaults, overview] = await Promise.all([
     supabase.from("billing_accounts").select("id, property:properties(name), contacts:billing_contacts(email, is_active, delivery)").eq("id", accountId).single(),
     invoiceQuery,
-    supabase.from("app_settings").select("email_sender, email_reply_to, copy_address").maybeSingle(),
+    supabase.from("app_settings").select("email_sender, email_reply_to, copy_address, always_cc").maybeSingle(),
     supabase.from("account_send_defaults").select("*").eq("account_id", accountId).maybeSingle(),
     supabase.from("account_overview").select("balance_cents").eq("account_id", accountId).maybeSingle(),
   ]);
@@ -66,7 +66,7 @@ async function sendForAccount(
   if (to.length === 0) return `${propertyName}: there is no one in the To line. Add a contact on the Contacts page.`;
   const cc = [
     ...new Set(
-      [...chosen.filter((e) => ccContacts.has(e)), picked.copySelf ? userEmail.toLowerCase() : "", picked.copyJr ? (settings.data?.copy_address ?? "").toLowerCase() : ""].filter(
+      [...chosen.filter((e) => ccContacts.has(e)), ...((settings.data?.always_cc as string[] | null) ?? []).map((e) => e.toLowerCase()), picked.copySelf ? userEmail.toLowerCase() : "", picked.copyJr ? (settings.data?.copy_address ?? "").toLowerCase() : ""].filter(
         (e) => EMAIL.test(e) && !to.includes(e),
       ),
     ),
@@ -174,7 +174,8 @@ export async function sendReminder(fd: FormData) {
   const account = invoice!.account as unknown as { property: { name: string }; contacts: { email: string; is_active: boolean; delivery: string }[] };
   const contacts = account.contacts.filter((c) => c.is_active);
   const to = contacts.filter((c) => c.delivery !== "cc").map((c) => c.email.toLowerCase());
-  const cc = contacts.filter((c) => c.delivery === "cc").map((c) => c.email.toLowerCase());
+  const { data: settings } = await supabase.from("app_settings").select("email_sender, email_reply_to, always_cc").maybeSingle();
+  const cc = [...new Set([...contacts.filter((c) => c.delivery === "cc").map((c) => c.email.toLowerCase()), ...((settings?.always_cc as string[] | null) ?? []).map((e) => e.toLowerCase())])].filter((e) => !to.includes(e));
   if (to.length === 0) done("error", `${account.property.name} has no one in the To line. Add a contact first.`);
 
   const stored = await supabase.storage.from("invoices").download(pdfPath(invoice!.account_id, invoiceId));
@@ -185,7 +186,6 @@ export async function sendReminder(fd: FormData) {
     if (!doc) done("error", "The invoice could not be prepared.");
     content = await renderToBuffer(<InvoicePdf doc={doc!} />);
   }
-  const { data: settings } = await supabase.from("app_settings").select("email_sender, email_reply_to").maybeSingle();
   const sent = await sendEmail({
     from: settings?.email_sender ?? "Kaizen Waste <invoices@kaizen-waste.com>",
     to,

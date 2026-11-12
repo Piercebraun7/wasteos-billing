@@ -38,6 +38,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           {row("Sending", connected ? "Connected" : "Not connected yet", connected)}
           {row("Invoices are sent from", data?.email_sender ?? "Not set")}
           {row("Replies go to", data?.email_reply_to ?? "Not set")}
+          {row("Always copied on customer emails", ((data?.always_cc as string[] | null) ?? []).join(", ") || "No one")}
           {row("Send to JR copies", data?.copy_address ?? "Not set")}
         </Card>
 

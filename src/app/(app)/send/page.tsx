@@ -23,7 +23,7 @@ export default async function SendPage({ searchParams }: { searchParams: Promise
     supabase.from("billing_accounts").select("id, property:properties(name), customer:customers(name), contacts:billing_contacts(name, email, is_active, delivery)"),
     supabase.from("account_send_defaults").select("*"),
     supabase.from("email_sends").select("*").order("sent_at", { ascending: false }).limit(60),
-    supabase.from("app_settings").select("email_sender, email_reply_to, copy_address").maybeSingle(),
+    supabase.from("app_settings").select("email_sender, email_reply_to, copy_address, always_cc").maybeSingle(),
     supabase.from("account_overview").select("account_id, balance_cents"),
   ]);
   const balances = new Map((overviewRes.data ?? []).map((o) => [o.account_id as string, Number(o.balance_cents)]));
@@ -156,6 +156,9 @@ export default async function SendPage({ searchParams }: { searchParams: Promise
               </details>
               <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto_auto_auto] sm:items-center">
                 <input name="extra" placeholder="Add another email address (optional)" aria-label="Another email address" className={inputClass} />
+                {((settings.data?.always_cc as string[] | null) ?? []).length > 0 && (
+                  <span className="text-sm text-mute">Always copied: {((settings.data?.always_cc as string[] | null) ?? []).join(", ")}</span>
+                )}
                 <label className="flex items-center gap-2 text-sm text-slate-600">
                   <input type="checkbox" name="copy_self" defaultChecked={last?.send_copy_to_self ?? false} className="size-4" /> Send copy to myself
                 </label>

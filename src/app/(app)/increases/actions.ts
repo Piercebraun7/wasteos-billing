@@ -56,9 +56,9 @@ export async function decideIncrease(fd: FormData) {
   let note = "Marked as sent by hand";
   if (intent === "send") {
     const to = base!.contacts.filter((c) => !c.cc).map((c) => c.email);
-    const cc = base!.contacts.filter((c) => c.cc).map((c) => c.email);
     if (to.length === 0) back("error", `${base!.propertyName} has no one in the To line. Add a contact first.`);
-    const { data: settings } = await supabase.from("app_settings").select("email_sender, email_reply_to").maybeSingle();
+    const { data: settings } = await supabase.from("app_settings").select("email_sender, email_reply_to, always_cc").maybeSingle();
+    const cc = [...new Set([...base!.contacts.filter((c) => c.cc).map((c) => c.email), ...((settings?.always_cc as string[] | null) ?? []).map((e) => e.toLowerCase())])].filter((e) => !to.includes(e));
     // The email states the rate at the percent chosen just now.
     const perUnit = base!.currentRateCents !== null;
     const newRate = perUnit ? raise(base!.currentRateCents!, bps!) : null;
