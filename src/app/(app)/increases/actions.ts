@@ -68,7 +68,21 @@ export async function decideIncrease(fd: FormData) {
       newRateCents: newRate,
       newMonthlyCents: perUnit ? (base!.units ?? 0) * (newRate ?? 0) : raise(base!.currentMonthlyCents, bps!),
     };
-    const email = noticeEmail(row, settings?.email_reply_to ?? user.email);
+    const standard = noticeEmail(row, settings?.email_reply_to ?? user.email);
+    // Wording edited on the page is used as written. If the percent was changed
+    // after the message was written, an edited message would state the old
+    // rates, so it is refused; an untouched message is simply rewritten.
+    const body = String(fd.get("body") ?? "").replace(/\r\n/g, "\n").trim();
+    const original = String(fd.get("original_body") ?? "").replace(/\r\n/g, "\n").trim();
+    const edited = body !== "" && body !== original;
+    const percentChanged = field(fd, "rendered_percent") !== "" && parsePercentToBps(field(fd, "rendered_percent")) !== bps;
+    if (edited && percentChanged) {
+      back("error", `${base!.propertyName}: the message was edited and still shows the rates for ${field(fd, "rendered_percent")}%. Either set the percent back to ${field(fd, "rendered_percent")}, or reload the page so the message is rewritten for the new percent, then make your edits again.`);
+    }
+    const email = {
+      subject: (percentChanged ? "" : field(fd, "subject")) || standard.subject,
+      text: edited ? body : standard.text,
+    };
     const sent = await sendEmail({ from: settings?.email_sender ?? "Kaizen Waste <invoices@kaizen-waste.com>", to, cc, replyTo: settings?.email_reply_to ?? user.email, subject: email.subject, text: email.text, attachments: [] });
     if ("error" in sent) back("error", `${base!.propertyName}: ${sent.error}`);
     const sentId = (sent as { id: string }).id;

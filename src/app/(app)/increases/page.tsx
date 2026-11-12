@@ -116,15 +116,25 @@ export default async function IncreasesPage({ searchParams }: { searchParams: Pr
                 <span>Mark as sent</span>
               </SubmitButton>
               <button name="intent" value="skip" className="h-11 rounded-full px-4 text-sm font-medium text-red-600 hover:bg-red-50">Skip this year</button>
+
+              <details className="mt-2 w-full rounded-2xl border border-line">
+                <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-ink">Read or edit the notice email</summary>
+                <div className="space-y-3 border-t border-line p-4">
+                  <input type="hidden" name="rendered_percent" value={percentText(r.bps)} />
+                  <input type="hidden" name="original_body" value={email.text} />
+                  <label className="block">
+                    <span className="mb-1.5 block text-[13px] font-medium text-slate-600">Subject</span>
+                    <input name="subject" defaultValue={email.subject} className={inputClass} />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-[13px] font-medium text-slate-600">Message</span>
+                    <textarea name="body" defaultValue={email.text} rows={16} className={`${inputClass} h-auto py-3 leading-relaxed`} />
+                  </label>
+                  <p className="text-xs text-mute">Changes apply to this notice only. If you change the percent above, the rates in this message are refreshed for you unless you have edited it.</p>
+                </div>
+              </details>
             </form>
 
-            <details className="mt-4">
-              <summary className="cursor-pointer text-sm font-medium text-ink">Preview the notice email</summary>
-              <div className="mt-3 rounded-2xl border border-line bg-slate-50/70 p-4">
-                <p className="text-sm font-semibold text-ink">{email.subject}</p>
-                <pre className="mt-3 whitespace-pre-wrap font-sans text-sm leading-relaxed text-slate-700">{email.text}</pre>
-              </div>
-            </details>
           </section>
         );
       })}

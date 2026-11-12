@@ -27,7 +27,14 @@ type Choice = { to: string[]; copySelf: boolean; copyJr: boolean };
  * records it in the send log, and remembers who it went to for next time.
  * Returns an error message, or null.
  */
-async function sendForAccount(supabase: SupabaseClient, userEmail: string, accountId: string, choice: Choice | null, service: string): Promise<string | null> {
+async function sendForAccount(
+  supabase: SupabaseClient,
+  userEmail: string,
+  accountId: string,
+  choice: Choice | null,
+  service: string,
+  custom: { subject: string; text: string } | null = null,
+): Promise<string | null> {
   let invoiceQuery = supabase.from("invoices").select("id, invoice_number, total_cents, due_date, service_month, kind").eq("account_id", accountId).eq("status", "approved").order("invoice_number");
   // Sending from one service's queue only sends that service's invoices.
   if (isServiceCategory(service)) invoiceQuery = invoiceQuery.eq("service_category", service);
@@ -79,12 +86,15 @@ async function sendForAccount(supabase: SupabaseClient, userEmail: string, accou
   }
 
   const replyTo = settings.data?.email_reply_to ?? userEmail;
-  const { subject, text } = invoiceEmail({
+  const standard = invoiceEmail({
     propertyName,
     invoices: invoices.map((i) => ({ number: Number(i.invoice_number), totalCents: Number(i.total_cents), dueDate: i.due_date, serviceMonth: i.service_month, kind: i.kind })),
     balanceCents: Number(overview.data?.balance_cents ?? 0),
     replyTo,
   });
+  // Wording edited on the Send page replaces the standard wording for this email only.
+  const subject = custom?.subject.trim() || standard.subject;
+  const text = custom?.text.trim() || standard.text;
   const sent = await sendEmail({ from: settings.data?.email_sender ?? "Kaizen Waste <invoices@kaizen-waste.com>", to, cc, replyTo, subject, text, attachments });
   if ("error" in sent) return `${propertyName}: ${sent.error}`;
 
@@ -113,6 +123,7 @@ export async function sendOne(fd: FormData) {
     accountId,
     { to: [...fd.getAll("to").map(String), ...extra], copySelf: fd.get("copy_self") === "on", copyJr: fd.get("copy_jr") === "on" },
     service,
+    { subject: String(fd.get("subject") ?? ""), text: String(fd.get("body") ?? "") },
   );
   if (problem) back("error", problem, service);
   back("saved", "Sent.", service);
