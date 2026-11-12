@@ -50,6 +50,8 @@ type Contract = {
   notion_url: string | null;
   created_at: string;
   late_fee_template_id: string | null;
+  escalation_bps: number | null;
+  rate_notice_days: number | null;
   service_category: string | null;
   expected_monthly_cents: number | null;
   late_fee_template: { name: string; confirmed_at: string | null } | null;
@@ -415,6 +417,12 @@ export default async function AccountPage({
               </Field>
               <Field label="Rebate percent" hint="0 if none.">
                 <input name="rebate_percent" inputMode="decimal" defaultValue={bpsToInput(contract.rebate_bps)} className={inputClass} />
+              </Field>
+              <Field label="Annual increase percent" hint="Applied from month 13, once confirmed under Rate increases.">
+                <input name="escalation_percent" inputMode="decimal" defaultValue={bpsToInput(contract.escalation_bps ?? 300)} className={inputClass} />
+              </Field>
+              <Field label="Notice days for a rate change" hint="From the signed contract.">
+                <input name="rate_notice_days" inputMode="numeric" defaultValue={contract.rate_notice_days ?? 90} className={inputClass} />
               </Field>
               <label className="flex items-center gap-2 text-sm text-slate-600 sm:col-span-3">
                 <input name="preferred_agreement" type="checkbox" defaultChecked={contract.preferred_agreement} className="size-4" />

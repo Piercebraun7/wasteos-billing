@@ -27,6 +27,10 @@ export type ScrapedTerms = {
   taxPercent: string | null;
   propertyAddress: string | null;
   billingAddress: string | null;
+  /** Days of notice the contract requires before a rate change (30, or 90 for "3 months"). */
+  rateNoticeDays?: number | null;
+  /** The most the rate may rise in a year, as a percent, when the contract caps it. */
+  rateCapPercent?: string | null;
 };
 
 const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
@@ -100,6 +104,10 @@ export function parseContractText(raw: string): ScrapedTerms {
   const billing = /Billing Address:\s*(.+?Zip:\s*\d{5})/i.exec(text);
   const tidy = (s: string | undefined) => (s ? s.replace(/\s*\|\s*/g, ", ").replace(/\s+(City|State|Zip):\s*/g, ", ").replace(/,\s*,/g, ",").trim().slice(0, 160) : null);
 
+  const noticeDays = /Notice of rate changes shall be sent (\d+) days prior/i.exec(text);
+  const noticeMonths = /Notice of rate changes shall be sent (\d+) months prior/i.exec(text);
+  const cap = /(?:not to exceed|no greater than)[a-z\s]*\(?(\d+(?:\.\d+)?)%\)?/i.exec(text);
+
   const isPerUnit = !perMove && (ramp.length > 0 || containers !== null);
   return {
     kind: isPerUnit ? "per_unit" : row || headline ? "flat" : "unknown",
@@ -115,5 +123,7 @@ export function parseContractText(raw: string): ScrapedTerms {
     taxPercent: row?.[4] ?? null,
     propertyAddress: tidy(property?.[1]),
     billingAddress: tidy(billing?.[1]),
+    rateNoticeDays: noticeDays ? Number(noticeDays[1]) : noticeMonths ? Number(noticeMonths[1]) * 30 : null,
+    rateCapPercent: cap ? cap[1] : null,
   };
 }

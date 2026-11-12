@@ -5,6 +5,7 @@ import { Empty, Notice, PageHeader, secondaryButton } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { todayInPhoenix } from "@/lib/billing/dates";
 import { divideRoundHalfUp, rateFor, type BillingModel, type EventRate, type Phase } from "@/lib/billing/invoice-math";
+import { plannedPhases, type Decision } from "@/lib/billing/escalation";
 import { monthsOfYear, scheduleCell } from "@/lib/billing/schedule";
 import { formatCents, lineAmountCents } from "@/lib/money";
 import { categoryOfModel, isServiceCategory, SERVICE_ORDER, SERVICES, type ServiceCategory } from "@/lib/services";
@@ -21,6 +22,8 @@ type Contract = {
   contract_file_path: string | null;
   phases: Phase[];
   event_rates: EventRate[];
+  escalation_bps: number | null;
+  increases: Decision[] | null;
 };
 type Account = {
   id: string;
@@ -54,7 +57,7 @@ export default async function SchedulePage({
     supabase.from("invoices").select("recurring_invoice_id, service_month, total_cents").not("recurring_invoice_id", "is", null).gte("service_month", months[0]).lte("service_month", months[11]).neq("status", "void"),
     supabase
       .from("billing_accounts")
-      .select("id, go_live_service_month, property:properties(name, unit_count), customer:customers(id, name), contracts(*, phases:contract_phases(*), event_rates:contract_event_rates(*))")
+      .select("id, go_live_service_month, property:properties(name, unit_count), customer:customers(id, name), contracts(*, phases:contract_phases(*), event_rates:contract_event_rates(*), increases:rate_increases(*))")
       .eq("status", "active"),
     supabase.from("invoices").select("account_id, service_month, service_category, total_cents, status").eq("kind", "scheduled").gte("service_month", months[0]).lte("service_month", months[11]).neq("status", "void"),
     supabase.from("billable_events").select("id, account_id, event_date, event_type, time_window, quantity, rate_cents, description").neq("status", "rejected").gte("event_date", months[0]).lte("event_date", `${year}-12-31`),
@@ -76,7 +79,7 @@ export default async function SchedulePage({
       const eventBased = contract.billing_model === "per_event" || contract.billing_model === "as_needed";
       const cells: Cell[] = months.map((month) => {
         if (!eventBased) {
-          return { ...scheduleCell({ model: contract.billing_model, phases: contract.phases, month, contractStart: contract.start_date }), estimate: false };
+          return { ...scheduleCell({ model: contract.billing_model, phases: plannedPhases(contract, `${year}-12-31`, today), month, contractStart: contract.start_date }), estimate: false };
         }
         // Billed from logged work: show what was logged, or the usual month as an estimate.
         const logged = (events.data ?? []).filter((e) => e.account_id === account.id && String(e.event_date).slice(0, 7) === month.slice(0, 7));
@@ -164,7 +167,7 @@ export default async function SchedulePage({
       <ul className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-mute">
         <li className="flex items-center gap-1.5"><span className="size-3 rounded bg-ice ring-1 ring-sky-200" /> Free month</li>
         <li className="flex items-center gap-1.5"><span className="size-3 rounded border border-dashed border-slate-400" /> Partial month</li>
-        <li className="flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-ink" /> Rate or unit change</li>
+        <li className="flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-ink" /> Rate or unit change, including the annual increase</li>
         <li className="flex items-center gap-1.5"><span className="font-semibold text-emerald-600">&#10003;</span> Invoiced</li>
         <li className="flex items-center gap-1.5"><span className="italic">est.</span> Usual month for work billed per load</li>
         <li>Recurring invoices show their name and day of the month</li>

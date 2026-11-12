@@ -60,6 +60,11 @@ function readContract(fd: FormData): Record<string, string | boolean> | string {
   const rebate = text(fd, "rebate_percent");
   const rebateBps = rebate ? parsePercentToBps(rebate) : 0;
   if (rebateBps === null) return "Rebate percent must be a number, for example 3.";
+  const escalation = text(fd, "escalation_percent");
+  const escalationBps = escalation ? parsePercentToBps(escalation) : 300;
+  if (escalationBps === null) return "The annual increase must be a percent, for example 3.";
+  const noticeDays = text(fd, "rate_notice_days");
+  if (noticeDays && (wholeNumber(noticeDays) === null || Number(noticeDays) === 0)) return "Notice days must be a whole number, for example 90.";
   const notion = text(fd, "notion_url");
   if (notion && !/^https:\/\//.test(notion)) return "The Notion link must start with https://";
   return {
@@ -71,6 +76,8 @@ function readContract(fd: FormData): Record<string, string | boolean> | string {
     preferred_agreement: fd.get("preferred_agreement") === "on",
     rebate_bps: String(rebateBps),
     notion_url: notion,
+    escalation_bps: String(escalationBps),
+    rate_notice_days: noticeDays || "90",
   };
 }
 
@@ -280,6 +287,8 @@ export async function updateContract(fd: FormData) {
       preferred_agreement: c.preferred_agreement,
       rebate_bps: Number(c.rebate_bps),
       notion_url: c.notion_url || null,
+      escalation_bps: Number(c.escalation_bps),
+      rate_notice_days: Number(c.rate_notice_days),
     })
     .eq("id", text(fd, "contract_id"));
   if (error) back(accountId, "error", error.message, tabOf(fd));

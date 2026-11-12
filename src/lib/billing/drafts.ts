@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { lineAmountCents } from "../money";
 import { categoryOfModel, SERVICES, type ServiceCategory } from "../services";
+import { billingPhases, type Decision } from "./escalation";
 import { addDays, daysInMonth, iso, monthEnd, monthLabel, monthStart, parts, type ISODate } from "./dates";
 import {
   applyTax,
@@ -28,6 +29,8 @@ type ContractRow = {
   created_at: string;
   phases: Phase[];
   event_rates: EventRate[];
+  escalation_bps?: number | null;
+  increases?: Decision[] | null;
 };
 type AccountRow = {
   id: string;
@@ -61,7 +64,7 @@ export async function generateDrafts(supabase: SupabaseClient, serviceMonth: ISO
   const [accounts, existing, events] = await Promise.all([
     supabase
       .from("billing_accounts")
-      .select("id, go_live_service_month, property:properties(name), contracts(*, phases:contract_phases(*), event_rates:contract_event_rates(*))")
+      .select("id, go_live_service_month, property:properties(name), contracts(*, phases:contract_phases(*), event_rates:contract_event_rates(*), increases:rate_increases(*))")
       .eq("status", "active"),
     supabase.from("invoices").select("account_id, service_category").eq("service_month", first).eq("origin", "app").eq("kind", "scheduled").neq("status", "void"),
     supabase.from("billable_events").select("*").eq("status", "approved").gte("event_date", first).lte("event_date", last),
@@ -117,7 +120,8 @@ export async function generateDrafts(supabase: SupabaseClient, serviceMonth: ISO
       if (alreadyInvoiced.has(`${account.id}:${category}`)) continue;
 
       // Contracts keep billing past their term until billing is switched off, so no end date is applied.
-      const recurring = recurringLines({ model: contract.billing_model, phases: contract.phases, serviceMonth: first, contractStart: contract.start_date });
+      // An annual increase is billed only once it has been confirmed.
+      const recurring = recurringLines({ model: contract.billing_model, phases: billingPhases(contract, last), serviceMonth: first, contractStart: contract.start_date });
       const mine = accountEvents.filter((e) => owner.get(e.id) === contract.id);
       const perEvent = eventLines({ events: mine, rates: contract.event_rates, serviceMonth: first });
       const charges = [...recurring, ...perEvent.lines];

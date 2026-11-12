@@ -33,7 +33,7 @@ const ALL_TABLES = [
   "contract_phases", "contract_event_rates", "invoices", "billable_events", "invoice_lines",
   "payments", "payment_applications", "credit_memos", "adjustments", "disputes",
   "ledger_entries", "rebate_accruals", "email_sends", "qbo_sync_log",
-  "source_discrepancies", "app_settings", "audit_log", "service_items", "recurring_invoices",
+  "source_discrepancies", "app_settings", "audit_log", "service_items", "recurring_invoices", "rate_increases",
 ];
 // What a customer contact may read (their own rows only).
 const CUSTOMER_TABLES = [
@@ -118,6 +118,7 @@ async function seedCustomer(key: "A" | "B", userId: string) {
     "insert into public.recurring_invoices (account_id, name, day_of_month, start_month, lines) values ($1, 'Monthly bulk', 10, '2026-11-01', $2)",
     [r.account, JSON.stringify([{ description: "Scheduled Bulk Waste Service", quantity: "1", unit_price_cents: 35000 }])],
   );
+  await db.query("insert into public.rate_increases (contract_id, effective_month, percent_bps, status) select id, '2027-01-01', 300, 'confirmed' from public.contracts where account_id = $1", [r.account]);
   // Admin-only extras, so "sees zero rows" is a real test and not an empty table.
   await db.query("insert into public.account_send_defaults (account_id, recipient_emails) values ($1, $2)", [r.account, [`ap-${key}@example.com`]]);
   await db.query("insert into public.billable_events (account_id, event_date, event_type) values ($1, '2026-10-05', 'bulk_pickup')", [r.account]);

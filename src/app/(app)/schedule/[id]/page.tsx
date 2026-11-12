@@ -5,6 +5,7 @@ import { Card, Eyebrow, Field, inputClass, Notice, primaryButton, secondaryButto
 import { requireAdmin } from "@/lib/auth";
 import { monthLabel, monthStart, todayInPhoenix } from "@/lib/billing/dates";
 import { phaseMonthlyCents, type BillingModel, type Phase } from "@/lib/billing/invoice-math";
+import { plannedPhases, type Decision } from "@/lib/billing/escalation";
 import { nextMonth, scheduleCell, type ScheduleCell } from "@/lib/billing/schedule";
 import type { ScrapedTerms } from "@/lib/contracts/parse";
 import { flatPhase, rampPhases, termEnd, type Alignment, type NewPhase } from "@/lib/contracts/ramp";
@@ -21,6 +22,8 @@ type Contract = {
   created_at: string;
   contract_file_name: string | null;
   scraped_terms: ScrapedTerms | null;
+  escalation_bps: number | null;
+  increases: Decision[] | null;
   phases: Phase[];
 };
 
@@ -40,7 +43,7 @@ export default async function LaunchPage({
 
   const { data, error } = await supabase
     .from("billing_accounts")
-    .select("id, go_live_service_month, property:properties(name, unit_count), customer:customers(name), contracts(*, phases:contract_phases(*))")
+    .select("id, go_live_service_month, property:properties(name, unit_count), customer:customers(name), contracts(*, phases:contract_phases(*), increases:rate_increases(*))")
     .eq("id", id)
     .maybeSingle();
   if (error) return <Notice kind="error">Could not load this property: {error.message}</Notice>;
@@ -63,9 +66,10 @@ export default async function LaunchPage({
   // The next 24 months of this property's schedule, starting where its billing starts.
   const today = todayInPhoenix();
   const firstMonth = monthStart(contract.start_date ?? phases[0]?.effective_start ?? today);
+  const withIncreases = plannedPhases({ ...contract, phases }, "2099-12-31", today);
   const strip: ScheduleCell[] = [];
   for (let month = firstMonth, i = 0; i < 24; i++, month = nextMonth(month)) {
-    strip.push(scheduleCell({ model: contract.billing_model, phases, month, contractStart: contract.start_date }));
+    strip.push(scheduleCell({ model: contract.billing_model, phases: withIncreases, month, contractStart: contract.start_date }));
   }
   const peak = Math.max(1, ...strip.map((c) => c.amountCents ?? 0));
 
@@ -116,7 +120,7 @@ export default async function LaunchPage({
       {query.saved && <Notice kind="ok">{query.saved}</Notice>}
       {query.error && <Notice kind="error">{query.error}</Notice>}
 
-      <Card title="Schedule" description="The next 24 months from the start of service, as the phases stand now.">
+      <Card title="Schedule" description="The first 24 months from the start of service, including the annual increase from month 13.">
         {phases.length === 0 ? (
           <p className="text-sm text-mute">No phases yet. Upload the contract below, or add phases on the property page.</p>
         ) : (

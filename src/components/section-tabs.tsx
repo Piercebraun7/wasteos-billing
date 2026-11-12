@@ -55,7 +55,7 @@ export async function InvoiceTabs({ supabase, current }: { supabase: SupabaseCli
 }
 
 /** Properties: the list, the schedule of billing, and who gets the invoices. */
-export function PropertyTabs({ current }: { current: "list" | "schedule" | "contacts" }) {
+export function PropertyTabs({ current }: { current: "list" | "schedule" | "contacts" | "increases" }) {
   return (
     <Tabs
       current={current}
@@ -63,6 +63,7 @@ export function PropertyTabs({ current }: { current: "list" | "schedule" | "cont
         { key: "list", href: "/accounts", label: "List" },
         { key: "schedule", href: "/schedule", label: "Schedule of billing" },
         { key: "contacts", href: "/contacts", label: "Contacts" },
+        { key: "increases", href: "/increases", label: "Rate increases" },
       ]}
     >
       <Link href="/accounts/new?next=schedule" className={primaryButton}>Add a property</Link>

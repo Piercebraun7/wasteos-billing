@@ -1,15 +1,17 @@
 import Link from "next/link";
 import { Empty, Eyebrow, Monogram, PageHeader, Stat } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
-import { monthLabel, todayInPhoenix } from "@/lib/billing/dates";
+import { addDays, monthLabel, todayInPhoenix } from "@/lib/billing/dates";
+import { listIncreases } from "@/lib/billing/increases";
 import type { BillingModel, Phase } from "@/lib/billing/invoice-math";
+import { billingPhases, type Decision } from "@/lib/billing/escalation";
 import { scheduleCell } from "@/lib/billing/schedule";
 import { formatDate } from "@/lib/format";
 import { formatCents, lineAmountCents } from "@/lib/money";
 import { categoryOfModel, isServiceCategory, SERVICE_ORDER, SERVICES, type ServiceCategory } from "@/lib/services";
 import type { AccountRow } from "./accounts/accounts-list";
 
-type Contract = { status: string; billing_model: BillingModel; service_category: string | null; expected_monthly_cents: number | null; start_date: string | null; phases: Phase[] };
+type Contract = { status: string; billing_model: BillingModel; service_category: string | null; expected_monthly_cents: number | null; start_date: string | null; escalation_bps: number | null; phases: Phase[]; increases: Decision[] | null };
 
 export default async function HomePage() {
   const { supabase, name } = await requireAdmin();
@@ -23,7 +25,7 @@ export default async function HomePage() {
     supabase.from("credit_memos").select("invoice_id, amount_cents"),
     supabase.from("invoices").select("id", { count: "exact", head: true }).eq("status", "draft"),
     supabase.from("invoices").select("id", { count: "exact", head: true }).eq("status", "approved"),
-    supabase.from("billing_accounts").select("id, contracts(status, billing_model, service_category, expected_monthly_cents, start_date, phases:contract_phases(*))").eq("status", "active"),
+    supabase.from("billing_accounts").select("id, contracts(status, billing_model, service_category, expected_monthly_cents, start_date, escalation_bps, phases:contract_phases(*), increases:rate_increases(*))").eq("status", "active"),
     supabase.from("recurring_invoices").select("service_category, start_month, lines").eq("status", "active"),
     supabase.from("billing_contacts").select("account_id, delivery, confirmed_at"),
   ]);
@@ -57,7 +59,7 @@ export default async function HomePage() {
         bulkUsual += Number(c.expected_monthly_cents ?? 0);
         continue;
       }
-      mrr[category] += scheduleCell({ model: c.billing_model, phases: c.phases, month, contractStart: c.start_date }).amountCents ?? 0;
+      mrr[category] += scheduleCell({ model: c.billing_model, phases: billingPhases(c, month), month, contractStart: c.start_date }).amountCents ?? 0;
     }
   }
   for (const r of recurring.data ?? []) {
@@ -66,6 +68,10 @@ export default async function HomePage() {
     mrr[isServiceCategory(r.service_category) ? r.service_category : "other"] += amount;
   }
   const mrrTotal = SERVICE_ORDER.reduce((sum, c) => sum + mrr[c], 0);
+
+  // Rate increase notices due within two weeks (or already late).
+  const increases = await listIncreases(supabase, today, addDays(today, 200)).catch(() => []);
+  const noticesDue = increases.filter((r) => r.status === "planned" && r.effective > today && r.noticeDue <= addDays(today, 14)).length;
 
   // What needs doing.
   const accountIds = new Set(rows.map((r) => r.account_id));
@@ -76,6 +82,7 @@ export default async function HomePage() {
     { n: drafts.count ?? 0, label: "to review", href: "/review" },
     { n: approved.count ?? 0, label: "approved and ready to send", href: "/send" },
     { n: owing.filter((r) => overdueByAccount.has(r.account_id)).length, label: "properties with an overdue invoice", href: "/invoices?view=overdue" },
+    { n: noticesDue, label: "rate increase notices due", href: "/increases" },
     { n: noContact, label: "properties with no one to send to", href: "/contacts" },
     { n: [...unconfirmed].filter((id) => accountIds.has(id) && withTo.has(id)).length, label: "properties with contacts to confirm", href: "/contacts" },
     { n: off, label: "properties with billing switched off", href: "/schedule" },

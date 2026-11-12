@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { monthLabel } from "../billing/dates";
 import type { BillingModel, Phase } from "../billing/invoice-math";
+import { billingPhases, type Decision } from "../billing/escalation";
 import { nextMonth, scheduleCell } from "../billing/schedule";
 import { lateFeeSentence, type InvoiceDocument } from "./invoice-data";
 
@@ -13,7 +14,7 @@ export async function buildInvoiceDocument(supabase: SupabaseClient, invoiceId: 
     .select(
       `*, lines:invoice_lines!invoice_lines_invoice_id_fkey(*, item:service_items(name)),
        account:billing_accounts(id, property:properties(*), customer:customers(name, is_ach_payer),
-         contracts(status, net_days, created_at, billing_model, service_category, start_date, end_date, phases:contract_phases(*), late_fee_template:late_fee_templates(*)))`,
+         contracts(status, net_days, created_at, billing_model, service_category, start_date, end_date, escalation_bps, phases:contract_phases(*), increases:rate_increases(*), late_fee_template:late_fee_templates(*)))`,
     )
     .eq("id", invoiceId)
     .maybeSingle();
@@ -70,7 +71,7 @@ export async function buildInvoiceDocument(supabase: SupabaseClient, invoiceId: 
 
   type ContractRow = {
     status: string; net_days: number; created_at: string; billing_model: BillingModel; service_category: string | null;
-    start_date: string | null; end_date: string | null; phases: Phase[];
+    start_date: string | null; end_date: string | null; phases: Phase[]; escalation_bps: number | null; increases: Decision[] | null;
     late_fee_template: Parameters<typeof lateFeeSentence>[0];
   };
   const contracts = (invoice.account.contracts ?? []) as ContractRow[];
@@ -85,7 +86,7 @@ export async function buildInvoiceDocument(supabase: SupabaseClient, invoiceId: 
   const serviceLabel = monthLabel(invoice.service_month);
   const scheduledService = invoice.kind !== "ad_hoc" && contract && contract.billing_model !== "per_event" && contract.billing_model !== "as_needed";
   const following = scheduledService && contract
-    ? scheduleCell({ model: contract.billing_model, phases: contract.phases ?? [], month: nextMonth(invoice.service_month), contractStart: contract.start_date })
+    ? scheduleCell({ model: contract.billing_model, phases: billingPhases({ ...contract, phases: contract.phases ?? [] }, nextMonth(invoice.service_month)), month: nextMonth(invoice.service_month), contractStart: contract.start_date })
     : null;
 
   return {

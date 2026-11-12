@@ -71,6 +71,14 @@ describe("reading a contract", () => {
     });
   });
 
+  it("reads the notice period and any cap on the annual increase", () => {
+    const a = parseContractText("Service Fee subject to annual rate changes predicated on market dynamics but not to exceed 5%. Notice of rate changes shall be sent 30 days prior to enactment.");
+    expect(a).toMatchObject({ rateNoticeDays: 30, rateCapPercent: "5" });
+    const b = parseContractText("such fee to increase no greater than three (3%) per year. Notice of rate changes shall be sent 3 months prior to the start of next calendar year.");
+    expect(b).toMatchObject({ rateNoticeDays: 90, rateCapPercent: "3" });
+    expect(parseContractText(VALET)).toMatchObject({ rateNoticeDays: null, rateCapPercent: null });
+  });
+
   it("returns nothing rather than guessing when the text is not an agreement", () => {
     const t = parseContractText("Lunch menu. Soup $4.50.");
     expect(t).toMatchObject({ kind: "unknown", termYears: null, unitCount: null, monthlyFeeCents: null, ramp: [] });
