@@ -16,6 +16,7 @@ type Row = {
   account_id: string;
   invoice_number: number | null;
   service_month: string;
+  origin: string;
   invoice_date: string;
   due_date: string;
   status: string;
@@ -38,7 +39,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Pro
   const [invoicesRes, applications, credits, reminded, settings, overview] = await Promise.all([
     supabase
       .from("invoices")
-      .select("id, account_id, invoice_number, service_month, invoice_date, due_date, status, kind, service_category, total_cents, account:billing_accounts(property:properties(name), customer:customers(name))")
+      .select("id, account_id, invoice_number, service_month, invoice_date, due_date, status, kind, origin, service_category, total_cents, account:billing_accounts(property:properties(name), customer:customers(name))")
       .neq("status", "draft")
       .order("invoice_date", { ascending: false }),
     supabase.from("payment_applications").select("invoice_id, amount_cents"),
@@ -110,6 +111,8 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Pro
                 balanceCents: balances.get(r.account_id) ?? r.remaining,
                 replyTo: settings.data?.email_reply_to ?? null,
                 signoff: settings.data?.email_signoff ?? "Kaizen Development Team",
+                today,
+                sentFromQuickBooksOn: r.origin === "quickbooks_import" ? r.invoice_date : null,
               });
               return (
                 <li key={r.id} className="rounded-2xl border border-line bg-white p-4">

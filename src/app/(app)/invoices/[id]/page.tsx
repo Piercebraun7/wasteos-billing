@@ -4,8 +4,11 @@ import { Card, Eyebrow, Notice, dangerButton, inputClass, secondaryButton } from
 import { SubmitButton } from "@/components/submit-button";
 import { creditInvoice, voidInvoice } from "../actions";
 import { postOne } from "../../quickbooks/actions";
+import { sendReminder } from "../../send/actions";
 import { requireAdmin } from "@/lib/auth";
-import { monthLabel } from "@/lib/billing/dates";
+import { monthLabel, todayInPhoenix } from "@/lib/billing/dates";
+import { emailIsConnected } from "@/lib/email/resend";
+import { reminderEmail } from "@/lib/email/reminder-email";
 import { formatDate } from "@/lib/format";
 import { formatCents } from "@/lib/money";
 
@@ -31,15 +34,33 @@ export default async function InvoicePage({
     .eq("id", id)
     .maybeSingle();
   if (!invoice) notFound();
-  const [applied, memos] = await Promise.all([
+  const [applied, memos, settings, overview, lastReminder] = await Promise.all([
     supabase.from("payment_applications").select("amount_cents").eq("invoice_id", id),
     supabase.from("credit_memos").select("id, amount_cents, reason, memo_date").eq("invoice_id", id).order("created_at"),
+    supabase.from("app_settings").select("email_reply_to, email_signoff").maybeSingle(),
+    supabase.from("account_overview").select("balance_cents").eq("account_id", invoice.account.id).maybeSingle(),
+    supabase.from("email_sends").select("sent_at, recipients").eq("invoice_id", id).eq("kind", "reminder").order("sent_at", { ascending: false }).limit(1),
   ]);
   const credits = (memos.data ?? []) as { id: string; amount_cents: number; reason: string; memo_date: string }[];
   const credited = credits.reduce((sum, c) => sum + Number(c.amount_cents), 0);
   const paid = (applied.data ?? []).reduce((sum, a) => sum + Number(a.amount_cents), 0);
   const open = invoice.status === "void" ? 0 : Math.max(0, Number(invoice.total_cents) - credited - paid);
   const posted = ["approved", "sent", "partially_paid"].includes(invoice.status);
+  const canRemind = ["sent", "partially_paid"].includes(invoice.status) && open > 0;
+  const reminded = (lastReminder.data ?? []).find((r) => (r.recipients as string[] | null)?.length);
+  const reminder = canRemind
+    ? reminderEmail({
+        propertyName: invoice.account.property.name,
+        invoiceNumber: Number(invoice.invoice_number),
+        remainingCents: open,
+        dueDate: invoice.due_date,
+        balanceCents: Number(overview.data?.balance_cents ?? open),
+        replyTo: settings.data?.email_reply_to ?? null,
+        signoff: settings.data?.email_signoff ?? "Kaizen Development Team",
+        today: todayInPhoenix(),
+        sentFromQuickBooksOn: invoice.origin === "quickbooks_import" ? invoice.invoice_date : null,
+      })
+    : null;
   const canVoid = ["approved", "sent"].includes(invoice.status) && credited === 0 && paid === 0;
   const lines = [...(invoice.lines as { id: string; description: string; amount_cents: number; sort_order: number }[])].sort((a, b) => a.sort_order - b.sort_order);
 
@@ -112,6 +133,23 @@ export default async function InvoicePage({
           <div className="mt-2 text-sm text-mute">
             {invoice.qbo_invoice_id ? "In QuickBooks." : invoice.invoice_number ? "Not in QuickBooks yet." : ""}
           </div>
+          {reminder && (
+            <div className="mt-6 space-y-3 border-t border-line pt-5">
+              <p className="text-sm font-semibold text-ink">Send a reminder</p>
+              <p className="text-sm text-mute">
+                {formatCents(open)} is still open. Check that the payment has not arrived before sending.
+                {reminded ? ` The last reminder went out ${formatDate(String(reminded.sent_at).slice(0, 10))}.` : ""}
+                {invoice.origin === "quickbooks_import" ? " This invoice was first sent from QuickBooks, so no copy is attached." : " A copy of the invoice is attached."}
+              </p>
+              <form action={sendReminder} className="space-y-3">
+                <input type="hidden" name="invoice_id" value={invoice.id} />
+                <input type="hidden" name="return_to" value="invoice" />
+                <input name="subject" defaultValue={reminder.subject} aria-label="Subject" className={inputClass} />
+                <textarea name="body" defaultValue={reminder.text} rows={12} aria-label="Message" className={`${inputClass} h-auto py-3 leading-relaxed`} />
+                {emailIsConnected() ? <SubmitButton className={secondaryButton}>Send reminder</SubmitButton> : <span className="text-sm text-mute">Email not connected</span>}
+              </form>
+            </div>
+          )}
           {posted && (
             <div className="mt-6 space-y-3 border-t border-line pt-5">
               <p className="text-sm font-semibold text-ink">Fix this invoice</p>

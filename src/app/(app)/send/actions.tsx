@@ -155,10 +155,12 @@ export async function sendAll(fd: FormData) {
 export async function sendReminder(fd: FormData) {
   const { supabase, user } = await requireAdmin();
   const invoiceId = String(fd.get("invoice_id") ?? "");
+  // Sent from an invoice's own page, the result is shown there; otherwise on the unpaid list.
+  const fromInvoicePage = fd.get("return_to") === "invoice";
   const done = (kind: "saved" | "error", message: string): never => {
     revalidatePath("/invoices");
     revalidatePath("/");
-    redirect(`/invoices?view=unpaid&${kind}=${encodeURIComponent(message)}`);
+    redirect(fromInvoicePage ? `/invoices/${invoiceId}?${kind}=${encodeURIComponent(message)}` : `/invoices?view=unpaid&${kind}=${encodeURIComponent(message)}`);
   };
   const subject = String(fd.get("subject") ?? "").trim();
   const text = String(fd.get("body") ?? "").trim();
@@ -166,7 +168,7 @@ export async function sendReminder(fd: FormData) {
 
   const { data: invoice, error } = await supabase
     .from("invoices")
-    .select("id, account_id, invoice_number, status, account:billing_accounts(property:properties(name), contacts:billing_contacts(email, is_active, delivery))")
+    .select("id, account_id, invoice_number, status, origin, account:billing_accounts(property:properties(name), contacts:billing_contacts(email, is_active, delivery))")
     .eq("id", invoiceId)
     .single();
   if (error) done("error", error.message);
@@ -178,13 +180,18 @@ export async function sendReminder(fd: FormData) {
   const cc = [...new Set([...contacts.filter((c) => c.delivery === "cc").map((c) => c.email.toLowerCase()), ...((settings?.always_cc as string[] | null) ?? []).map((e) => e.toLowerCase())])].filter((e) => !to.includes(e));
   if (to.length === 0) done("error", `${account.property.name} has no one in the To line. Add a contact first.`);
 
-  const stored = await supabase.storage.from("invoices").download(pdfPath(invoice!.account_id, invoiceId));
-  let content: Buffer;
-  if (stored.data) content = Buffer.from(await stored.data.arrayBuffer());
-  else {
-    const doc = await buildInvoiceDocument(supabase, invoiceId);
-    if (!doc) done("error", "The invoice could not be prepared.");
-    content = await renderToBuffer(<InvoicePdf doc={doc!} />);
+  // An invoice first sent from QuickBooks goes out without a redrawn copy: the customer has the original.
+  const attachments: Attachment[] = [];
+  if (invoice!.origin !== "quickbooks_import") {
+    const stored = await supabase.storage.from("invoices").download(pdfPath(invoice!.account_id, invoiceId));
+    let content: Buffer;
+    if (stored.data) content = Buffer.from(await stored.data.arrayBuffer());
+    else {
+      const doc = await buildInvoiceDocument(supabase, invoiceId);
+      if (!doc) done("error", "The invoice could not be prepared.");
+      content = await renderToBuffer(<InvoicePdf doc={doc!} />);
+    }
+    attachments.push({ filename: `Kaizen Waste Invoice ${invoice!.invoice_number}.pdf`, content });
   }
   const sent = await sendEmail({
     from: settings?.email_sender ?? "Kaizen Waste <no-reply@msg.kaizen-waste.com>",
@@ -193,7 +200,7 @@ export async function sendReminder(fd: FormData) {
     replyTo: settings?.email_reply_to ?? user.email,
     subject,
     text,
-    attachments: [{ filename: `Kaizen Waste Invoice ${invoice!.invoice_number}.pdf`, content }],
+    attachments,
   });
   if ("error" in sent) done("error", `${account.property.name}: ${sent.error}`);
   const log = await supabase.from("email_sends").insert({

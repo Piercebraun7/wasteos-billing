@@ -447,3 +447,38 @@ describe("invoice templates", () => {
     });
   });
 });
+
+describe("opening balances from QuickBooks", () => {
+  const row = (over: Record<string, unknown> = {}) => JSON.stringify({
+    number: 1159, qbo_id: "1273", account_id: account, invoice_date: "2026-09-01", due_date: "2026-10-01",
+    total_cents: 240972, open_cents: 7222, service: "valet",
+    lines: [
+      { description: "August servicing", quantity: 1, unit_price_cents: 233750, amount_cents: 233750, line_type: "flat" },
+      { description: "Late fee, 3% applied Oct 7, 2026", quantity: 1, unit_price_cents: 7222, amount_cents: 7222, line_type: "late_fee" },
+    ], ...over,
+  });
+  it("brings in a partly paid invoice so the balance rises by exactly what is still open, once", async () => {
+    await as(db, admin, async () => {
+      const before = await balance();
+      expect((await one<{ r: boolean }>("select public.import_qbo_open_invoice($1) as r", [row()])).r).toBe(true);
+      expect(await balance()).toBe(before + 7222);
+      const inv = await one<{ status: string; origin: string; qbo_invoice_id: string }>("select status, origin, qbo_invoice_id from public.invoices where invoice_number = 1159");
+      expect(inv).toMatchObject({ status: "partially_paid", origin: "quickbooks_import", qbo_invoice_id: "1273" });
+      expect(Number((await one<{ n: number }>("select sum(pa.amount_cents) as n from public.payment_applications pa join public.invoices i on i.id = pa.invoice_id where i.invoice_number = 1159")).n)).toBe(233750);
+      // A second run changes nothing.
+      expect((await one<{ r: boolean }>("select public.import_qbo_open_invoice($1) as r", [row()])).r).toBe(false);
+      expect(await balance()).toBe(before + 7222);
+    });
+  });
+  it("skips an unknown account and refuses lines that do not add up", async () => {
+    await as(db, admin, async () => {
+      expect((await one<{ r: boolean }>("select public.import_qbo_open_invoice($1) as r", [row({ account_id: "00000000-0000-0000-0000-00000000dead", number: 9001 })])).r).toBe(false);
+      await db.exec("savepoint s");
+      await expect(db.query("select public.import_qbo_open_invoice($1)", [row({ number: 9002, total_cents: 300000, open_cents: 300000 })])).rejects.toThrow(/do not add up/);
+      await db.exec("rollback to savepoint s");
+    });
+  });
+  it("is refused for anyone who is not a billing admin", async () => {
+    await expect(as(db, stranger, () => db.query("select public.import_qbo_open_invoice($1)", [row()]))).rejects.toThrow(/Only a billing admin/);
+  });
+});

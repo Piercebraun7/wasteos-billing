@@ -4,7 +4,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { Card, dangerButton, inputClass, Notice, PageHeader, primaryButton, secondaryButton } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { connect, qboIsConfigured, redirectUri } from "@/lib/quickbooks/client";
-import { disconnect, postAll, saveLinks } from "./actions";
+import { disconnect, importOpen, postAll, saveLinks } from "./actions";
 import { SERVICE_KEYS, SERVICE_LABELS } from "./keys";
 
 type QboCustomer = { Id: string; DisplayName: string; FullyQualifiedName?: string };
@@ -149,6 +149,19 @@ export default async function QuickBooksPage({ searchParams }: { searchParams: P
           </Card>
         </form>
       )}
+
+      <Card
+        title="Bring in what is owed from QuickBooks"
+        description="Reads every invoice still open in QuickBooks for a linked property and adds it here with its number, dates, lines, late fees already charged, and the amount still open. Nothing in QuickBooks is changed. Safe to click again: invoices already here are left alone."
+      >
+        <p className="text-sm text-mute">
+          {unlinked ? `${unlinked} propert${unlinked === 1 ? "y is" : "ies are"} not linked yet, so their invoices would be skipped. Save the links above first.` : "Every property is linked."}
+          {" "}Once brought in, an invoice stays as it was that day: a payment recorded in QuickBooks afterwards does not update it here yet.
+        </p>
+        <form action={importOpen} className="mt-3">
+          <SubmitButton className={primaryButton}>Bring in open invoices</SubmitButton>
+        </form>
+      </Card>
 
       <Card title="Invoices waiting to post" description="An invoice posts on its own when it is approved. Anything that did not post, for example because a property was not linked yet, waits here.">
         <p className="text-[15px] text-slate-700">{waiting === 0 ? "Nothing waiting. Every approved invoice is in QuickBooks." : `${waiting} approved invoice${waiting === 1 ? " is" : "s are"} not in QuickBooks yet.`}</p>

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import { connect } from "@/lib/quickbooks/client";
+import { importOpenInvoices } from "@/lib/quickbooks/import";
 import { pushInvoice } from "@/lib/quickbooks/push";
 import { SERVICE_KEYS } from "./keys";
 
@@ -70,4 +71,22 @@ export async function disconnect() {
   const { error } = await supabase.from("qbo_connection").delete().eq("singleton", true);
   if (error) done("error", error.message);
   done("saved", "QuickBooks disconnected. Nothing in QuickBooks was changed, and the property links are kept.");
+}
+
+/** Brings in every invoice still open in QuickBooks for a linked property. Safe to click twice. */
+export async function importOpen() {
+  const { supabase } = await requireAdmin();
+  const qbo = await connect(supabase);
+  if ("error" in qbo) done("error", qbo.error);
+  const result = await importOpenInvoices(supabase, qbo as Exclude<typeof qbo, { error: string }>);
+  if ("error" in result) done("error", result.error);
+  const r = result as Exclude<typeof result, { error: string }>;
+  revalidatePath("/", "layout");
+  const parts = [
+    `${r.added} invoice${r.added === 1 ? "" : "s"} brought in, adding $${(r.addedCents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })} to what is owed.`,
+    r.alreadyHere ? `${r.alreadyHere} were already here and left alone.` : "",
+    r.skipped.length ? `Not brought in, because the customer is not linked to a property: ${r.skipped.join("; ")}.` : "",
+    r.problems.length ? `Problems: ${r.problems.join("; ")}.` : "",
+  ].filter(Boolean);
+  done(r.problems.length ? "error" : "saved", parts.join(" "));
 }
