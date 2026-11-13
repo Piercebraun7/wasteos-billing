@@ -4,7 +4,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { Card, dangerButton, inputClass, Notice, PageHeader, primaryButton, secondaryButton } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { connect, qboIsConfigured, redirectUri } from "@/lib/quickbooks/client";
-import { disconnect, importOpen, postAll, saveLinks } from "./actions";
+import { checkNow, disconnect, importOpen, postAll, saveLinks } from "./actions";
 import { SERVICE_KEYS, SERVICE_LABELS } from "./keys";
 
 type QboCustomer = { Id: string; DisplayName: string; FullyQualifiedName?: string };
@@ -30,7 +30,7 @@ export default async function QuickBooksPage({ searchParams }: { searchParams: P
   const h = await headers();
   const origin = `${h.get("x-forwarded-proto") ?? "https"}://${h.get("x-forwarded-host") ?? h.get("host")}`;
   const configured = qboIsConfigured();
-  const { data: row } = await supabase.from("qbo_connection").select("realm_id, company_name, connected_at, item_map").maybeSingle();
+  const { data: row } = await supabase.from("qbo_connection").select("realm_id, company_name, connected_at, item_map, last_synced_at, last_sync_note").maybeSingle();
 
   const shell = (children: React.ReactNode) => (
     <div className="space-y-6">
@@ -82,6 +82,7 @@ export default async function QuickBooksPage({ searchParams }: { searchParams: P
     else items = [...i].sort((a, b) => a.Name.localeCompare(b.Name));
   }
   const itemMap = (row.item_map ?? {}) as Record<string, string>;
+  const automatic = Boolean(process.env.CRON_SECRET && process.env.SUPABASE_SECRET_KEY);
   const unlinked = accounts.filter((a) => !a.qbo_customer_id).length;
 
   return shell(
@@ -149,6 +150,21 @@ export default async function QuickBooksPage({ searchParams }: { searchParams: P
           </Card>
         </form>
       )}
+
+      <Card
+        title="Payments"
+        description="Payments are recorded in QuickBooks, which sees your bank account. Once a day the app asks QuickBooks what has been paid and marks each invoice here to match, linked to its payment and check number. It also brings in any invoice newly created in QuickBooks."
+      >
+        <p className="text-[15px] text-slate-700">
+          {row.last_synced_at
+            ? `Last checked ${new Date(row.last_synced_at as string).toLocaleString("en-US", { timeZone: "America/Phoenix", dateStyle: "medium", timeStyle: "short" })}. ${row.last_sync_note ?? ""}`
+            : "Not checked yet."}
+        </p>
+        {!automatic && <p className="mt-2 text-sm text-amber-700">The daily check is not switched on yet: it needs CRON_SECRET and SUPABASE_SECRET_KEY in Vercel. Until then, use the button.</p>}
+        <form action={checkNow} className="mt-3">
+          <SubmitButton className={primaryButton}>Check QuickBooks now</SubmitButton>
+        </form>
+      </Card>
 
       <Card
         title="Bring in what is owed from QuickBooks"

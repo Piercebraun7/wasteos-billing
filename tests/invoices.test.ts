@@ -482,3 +482,53 @@ describe("opening balances from QuickBooks", () => {
     await expect(as(db, stranger, () => db.query("select public.import_qbo_open_invoice($1)", [row()]))).rejects.toThrow(/Only a billing admin/);
   });
 });
+
+describe("payments recorded in QuickBooks", () => {
+  const sent = async (month: string) => {
+    await db.query("update public.app_settings set next_invoice_number = coalesce(next_invoice_number, 2000) where singleton");
+    const id = (await one<{ id: string }>("select public.create_draft_invoice($1) as id", [draft(month, 300000)])).id;
+    await db.query("select public.approve_invoice($1)", [id]);
+    await db.query("update public.invoices set status = 'sent' where id = $1", [id]);
+    return id;
+  };
+  const paid = async (id: string, total: number, ref = "5501", qbo = "p1") =>
+    Number((await one<{ n: number }>("select public.record_qbo_paid($1, $2, '2026-12-15', $3, $4) as n", [id, total, ref, qbo])).n);
+
+  it("records a part payment, then the rest, and never the same money twice", async () => {
+    await as(db, admin, async () => {
+      const id = await sent("2027-08-01");
+      const before = await balance();
+      expect(await paid(id, 100000)).toBe(100000);
+      expect(await balance()).toBe(before - 100000);
+      expect((await one<{ status: string }>("select status from public.invoices where id = $1", [id])).status).toBe("partially_paid");
+      // The same figure again changes nothing.
+      expect(await paid(id, 100000)).toBe(0);
+      expect(await balance()).toBe(before - 100000);
+      expect(await paid(id, 300000, "5502", "p2")).toBe(200000);
+      expect(await balance()).toBe(before - 300000);
+      expect((await one<{ status: string }>("select status from public.invoices where id = $1", [id])).status).toBe("paid");
+      const p = await one<{ origin: string; check_number: string }>("select origin, check_number from public.payments where qbo_payment_id = 'p2'");
+      expect(p).toMatchObject({ origin: "quickbooks_pull", check_number: "5502" });
+    });
+  });
+  it("never records more than is open here, even when QuickBooks shows more paid", async () => {
+    await as(db, admin, async () => {
+      const id = await sent("2027-09-01");
+      const before = await balance();
+      expect(await paid(id, 309000)).toBe(300000);
+      expect(await balance()).toBe(before - 300000);
+    });
+  });
+  it("stores one QuickBooks payment that covers two invoices against each of them", async () => {
+    await as(db, admin, async () => {
+      const a = await sent("2027-10-01");
+      const b = await sent("2027-11-01");
+      expect(await paid(a, 300000, "7000", "combo")).toBe(300000);
+      expect(await paid(b, 300000, "7000", "combo")).toBe(300000);
+      expect(Number((await one<{ n: number }>("select count(*)::int as n from public.payments where qbo_payment_id like 'combo%'")).n)).toBe(2);
+    });
+  });
+  it("is refused for anyone who is not a billing admin", async () => {
+    await expect(as(db, stranger, () => db.query("select public.record_qbo_paid(gen_random_uuid(), 100, '2026-12-15', null, null)"))).rejects.toThrow(/Only a billing admin/);
+  });
+});

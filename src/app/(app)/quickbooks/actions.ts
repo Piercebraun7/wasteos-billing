@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import { connect } from "@/lib/quickbooks/client";
 import { importOpenInvoices } from "@/lib/quickbooks/import";
+import { syncFromQuickBooks, syncNote } from "@/lib/quickbooks/payments";
 import { pushInvoice } from "@/lib/quickbooks/push";
 import { SERVICE_KEYS } from "./keys";
 
@@ -89,4 +90,16 @@ export async function importOpen() {
     r.problems.length ? `Problems: ${r.problems.join("; ")}.` : "",
   ].filter(Boolean);
   done(r.problems.length ? "error" : "saved", parts.join(" "));
+}
+
+/** Runs the daily QuickBooks check right now: new invoices in, payments recorded. */
+export async function checkNow() {
+  const { supabase } = await requireAdmin();
+  const qbo = await connect(supabase);
+  if ("error" in qbo) done("error", qbo.error);
+  const result = await syncFromQuickBooks(supabase, qbo as Exclude<typeof qbo, { error: string }>);
+  if ("error" in result) done("error", result.error);
+  const r = result as Exclude<typeof result, { error: string }>;
+  revalidatePath("/", "layout");
+  done(r.problems.length ? "error" : "saved", syncNote(r));
 }
