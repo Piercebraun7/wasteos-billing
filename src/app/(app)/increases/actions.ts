@@ -83,7 +83,7 @@ export async function decideIncrease(fd: FormData) {
       subject: (percentChanged ? "" : field(fd, "subject")) || standard.subject,
       text: edited ? body : standard.text,
     };
-    const sent = await sendEmail({ from: settings?.email_sender ?? "Kaizen Waste <invoices@kaizen-waste.com>", to, cc, replyTo: settings?.email_reply_to ?? user.email, subject: email.subject, text: email.text, attachments: [] });
+    const sent = await sendEmail({ from: settings?.email_sender ?? "Kaizen Waste <no-reply@msg.kaizen-waste.com>", to, cc, replyTo: settings?.email_reply_to ?? user.email, subject: email.subject, text: email.text, attachments: [] });
     if ("error" in sent) back("error", `${base!.propertyName}: ${sent.error}`);
     const sentId = (sent as { id: string }).id;
     await supabase.from("email_sends").insert({ account_id: base!.accountId, kind: "notice", recipients: to, cc, subject: email.subject, sent_at: sentAt, provider_message_id: sentId });

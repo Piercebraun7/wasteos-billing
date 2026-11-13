@@ -10,7 +10,7 @@ export async function sendTestEmail() {
   const done = (kind: "saved" | "error", message: string): never => redirect(`/settings?${kind}=${encodeURIComponent(message)}`);
   if (!user.email) done("error", "Your sign-in has no email address to send the test to.");
   const { data: settings } = await supabase.from("app_settings").select("email_sender, email_reply_to").maybeSingle();
-  const from = settings?.email_sender ?? "Kaizen Waste <invoices@kaizen-waste.com>";
+  const from = settings?.email_sender ?? "Kaizen Waste <no-reply@msg.kaizen-waste.com>";
   const sent = await sendEmail({
     from,
     to: [user.email!],

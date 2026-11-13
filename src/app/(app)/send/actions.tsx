@@ -95,7 +95,7 @@ async function sendForAccount(
   // Wording edited on the Send page replaces the standard wording for this email only.
   const subject = custom?.subject.trim() || standard.subject;
   const text = custom?.text.trim() || standard.text;
-  const sent = await sendEmail({ from: settings.data?.email_sender ?? "Kaizen Waste <invoices@kaizen-waste.com>", to, cc, replyTo, subject, text, attachments });
+  const sent = await sendEmail({ from: settings.data?.email_sender ?? "Kaizen Waste <no-reply@msg.kaizen-waste.com>", to, cc, replyTo, subject, text, attachments });
   if ("error" in sent) return `${propertyName}: ${sent.error}`;
 
   const now = new Date().toISOString();
@@ -187,7 +187,7 @@ export async function sendReminder(fd: FormData) {
     content = await renderToBuffer(<InvoicePdf doc={doc!} />);
   }
   const sent = await sendEmail({
-    from: settings?.email_sender ?? "Kaizen Waste <invoices@kaizen-waste.com>",
+    from: settings?.email_sender ?? "Kaizen Waste <no-reply@msg.kaizen-waste.com>",
     to,
     cc,
     replyTo: settings?.email_reply_to ?? user.email,
