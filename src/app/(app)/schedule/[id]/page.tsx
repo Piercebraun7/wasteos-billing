@@ -92,8 +92,8 @@ export default async function LaunchPage({
         { label: "Term length", contract: terms.termYears ? `${terms.termYears} year${terms.termYears === 1 ? "" : "s"}` : "Not found", app: contract.end_date ? `Ends ${formatDate(contract.end_date)}` : "No end date set", flag: false },
         { label: "Unit count", contract: terms.unitCount != null ? String(terms.unitCount) : "Not applicable", app: account.property.unit_count != null ? String(account.property.unit_count) : "Not set", flag: differs(terms.unitCount, account.property.unit_count) },
         { label: "Rate per unit", contract: terms.ratePerUnitCents != null ? formatCents(terms.ratePerUnitCents) : "Not applicable", app: current?.rate_per_unit_cents != null ? formatCents(current.rate_per_unit_cents) : "Not applicable", flag: differs(terms.ratePerUnitCents, current?.rate_per_unit_cents) },
-        { label: "Full monthly fee, before tax", contract: terms.monthlyFeeCents != null ? formatCents(terms.monthlyFeeCents) : "Not found", app: current ? formatCents(phaseMonthlyCents(current)) : "No phases yet", flag: differs(terms.monthlyFeeCents, current ? phaseMonthlyCents(current) : null) },
-        { label: "Rate increases", contract: terms.ramp.length ? `Lease-up schedule, ${terms.ramp.length} steps` : "None listed", app: `${phases.length} phase${phases.length === 1 ? "" : "s"}`, flag: false },
+        { label: "Full monthly fee, before tax", contract: terms.monthlyFeeCents != null ? formatCents(terms.monthlyFeeCents) : "Not found", app: current ? formatCents(phaseMonthlyCents(current)) : "No rate yet", flag: differs(terms.monthlyFeeCents, current ? phaseMonthlyCents(current) : null) },
+        { label: "Rate increases", contract: terms.ramp.length ? `Lease-up schedule, ${terms.ramp.length} steps` : "None listed", app: `${phases.length} rate row${phases.length === 1 ? "" : "s"}`, flag: false },
         { label: "Payment terms", contract: terms.paymentDays ? `${terms.paymentDays} days` : "Not found", app: "Net 30 (your standing rule)", flag: false },
         { label: "Late fee", contract: terms.lateFeePercent ? `${terms.lateFeePercent}%` : "Not found", app: "3% monthly (your standing rule)", flag: false },
         { label: "Sales tax listed", contract: terms.taxPercent ? `${terms.taxPercent}%` : "None", app: "Not charged", flag: false },
@@ -122,7 +122,7 @@ export default async function LaunchPage({
 
       <Card title="Schedule" description="The first 24 months from the start of service, including the annual increase from month 13.">
         {phases.length === 0 ? (
-          <p className="text-sm text-mute">No phases yet. Upload the contract below, or add phases on the property page.</p>
+          <p className="text-sm text-mute">No rate yet. Set it on the property page under Billing, or upload the contract below to build it.</p>
         ) : (
           <div className="overflow-x-auto">
             <div className="flex min-w-[900px] items-end gap-1.5">
@@ -185,7 +185,7 @@ export default async function LaunchPage({
       </Card>
 
       {terms && terms.kind !== "unknown" && usesPhases(contract.billing_model) && (
-        <Card title="Build the schedule from the contract" description="Adjust the inputs and click Preview. When the table below is right, apply it. This replaces the property's current phases, and is refused if any of them has already been invoiced.">
+        <Card title="Build the schedule from the contract" description="Adjust the inputs and click Preview. When the table below is right, apply it. This replaces the property's current rates, and is refused if any of them has already been invoiced.">
           <form className="grid gap-4 sm:grid-cols-4">
             <Field label="Service start date" hint="Notion is the source for start dates.">
               <input type="date" name="start" defaultValue={start} className={inputClass} />
@@ -219,7 +219,7 @@ export default async function LaunchPage({
             <>
               <div className="mt-6 overflow-hidden rounded-2xl border border-line">
                 <div className="grid grid-cols-[1.4fr_1fr_0.7fr_0.8fr_1fr] bg-slate-50 px-4 py-2.5 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-mute">
-                  <span>Phase</span><span>Starts</span><span className="text-right">Units</span><span className="text-right">Rate</span><span className="text-right">Per month</span>
+                  <span>Rate</span><span>Starts</span><span className="text-right">Units</span><span className="text-right">Rate</span><span className="text-right">Per month</span>
                 </div>
                 {proposed.map((p) => (
                   <div key={p.effective_start + p.label} className="grid grid-cols-[1.4fr_1fr_0.7fr_0.8fr_1fr] border-t border-line px-4 py-2.5 text-[15px]">

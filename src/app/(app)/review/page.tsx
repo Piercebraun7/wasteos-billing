@@ -116,7 +116,7 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
         const flags: string[] = [];
         const oneOff = d.kind === "ad_hoc";
         if (!previous && !oneOff) flags.push("First invoice for this service");
-        if (phases.size > 1 || (previous && previous.origin === "app" && [...phases].some((p) => !previousPhases.has(p)))) flags.push("Phase change this month");
+        if (phases.size > 1 || (previous && previous.origin === "app" && [...phases].some((p) => !previousPhases.has(p)))) flags.push("Rate change this month");
         if (previous && Number(previous.total_cents) !== Number(d.total_cents)) flags.push("Amount differs from last month");
         if (d.account.contacts.length === 0) flags.push("Missing billing contact");
         if (unresolved.has(d.account.property.id)) flags.push("Unresolved source discrepancy");

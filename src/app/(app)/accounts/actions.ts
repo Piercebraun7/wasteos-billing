@@ -33,17 +33,18 @@ function readPhase(
   rate: string,
   flat: string,
 ): PhaseInput | string {
-  if (!label) return "Each phase needs a label, for example Full rate.";
-  if (!DATE.test(start)) return `Phase "${label}" needs a start date.`;
+  // The note is optional: a plain rate needs no name.
+  if (!label) label = "Rate";
+  if (!DATE.test(start)) return "Each rate needs the date it starts.";
   if (model === "per_unit_valet") {
     const u = wholeNumber(units);
     const r = parseDollarsToCents(rate);
-    if (u === null) return `Phase "${label}" needs a whole number of billable units.`;
-    if (r === null) return `Phase "${label}" needs a rate per unit, for example 12.50. Use 0 for a free month.`;
+    if (u === null) return `The rate starting ${formatDate(start)} needs a whole number of billable units.`;
+    if (r === null) return `The rate starting ${formatDate(start)} needs a price per unit, for example 12.50. Use 0 for a free month.`;
     return { label, effective_start: start, billable_units: String(u), rate_per_unit_cents: String(r), flat_amount_cents: "" };
   }
   const f = parseDollarsToCents(flat);
-  if (f === null) return `Phase "${label}" needs a monthly amount, for example 1500.00. Use 0 for a free month.`;
+  if (f === null) return `The rate starting ${formatDate(start)} needs a monthly amount, for example 1500.00. Use 0 for a free month.`;
   return { label, effective_start: start, billable_units: "", rate_per_unit_cents: "", flat_amount_cents: String(f) };
 }
 
@@ -320,7 +321,7 @@ export async function savePhase(fd: FormData) {
     ? await supabase.from("contract_phases").update(values).eq("id", id)
     : await supabase.from("contract_phases").insert({ ...values, contract_id: text(fd, "contract_id") });
   if (error) back(accountId, "error", error.message, tabOf(fd));
-  back(accountId, "saved", id ? "Phase saved." : "Phase added.", tabOf(fd));
+  back(accountId, "saved", id ? "Rate saved." : "Rate added.", tabOf(fd));
 }
 
 export async function removePhase(fd: FormData) {
@@ -328,7 +329,7 @@ export async function removePhase(fd: FormData) {
   const accountId = text(fd, "account_id");
   const { error } = await supabase.from("contract_phases").delete().eq("id", text(fd, "phase_id"));
   if (error) back(accountId, "error", error.message, tabOf(fd));
-  back(accountId, "saved", "Phase removed.", tabOf(fd));
+  back(accountId, "saved", "Rate removed.", tabOf(fd));
 }
 
 export async function addEventRate(fd: FormData) {

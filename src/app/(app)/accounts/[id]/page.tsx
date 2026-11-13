@@ -88,7 +88,7 @@ function phaseAmount(model: string, p: Phase): string {
 
 const TABS = [
   ["overview", "Overview"],
-  ["schedule", "Schedule"],
+  ["schedule", "Billing"],
   ["contacts", "Contacts"],
   ["more", "More"],
 ] as const;
@@ -455,12 +455,12 @@ export default async function AccountPage({
 
           {usesPhases(contract.billing_model) && tab === "schedule" && (
             <Card
-              title="Phases"
+              title="Billing"
               needed={need.phase}
-              description="Each phase takes effect on its start date and stays in effect until the next one starts. Once a phase has been invoiced it is locked: add a new phase with a later start date instead."
+              description="What this property is billed each month. One row is enough for a single rate. Add another row for any month the units or price change, such as lease-up steps: each row applies from its start date until the next one. A row that has been invoiced is locked, so add a new row with a later date instead."
             >
               <div className="space-y-4">
-                {phases.length === 0 && <p className="text-sm text-mute">No phases yet. Add the first one below.</p>}
+                {phases.length === 0 && <p className="text-sm text-mute">No rate yet. Set it below.</p>}
                 {phases.map((p) => (
                   <div key={p.id}>
                     <div className="flex flex-wrap items-end gap-2">
@@ -468,8 +468,8 @@ export default async function AccountPage({
                         {hidden}
                         <input type="hidden" name="phase_id" value={p.id} />
                         <input type="hidden" name="billing_model" value={contract.billing_model} />
-                        <input name="label" defaultValue={p.label} aria-label="Phase label" className={inputClass} />
-                        <input name="effective_start" type="date" defaultValue={p.effective_start} aria-label="Phase start date" className={inputClass} />
+                        <input name="label" defaultValue={p.label} placeholder="Note (optional)" aria-label="Note" className={inputClass} />
+                        <input name="effective_start" type="date" defaultValue={p.effective_start} aria-label="Starts on" className={inputClass} />
                         {contract.billing_model === "per_unit_valet" ? (
                           <>
                             <input name="units" inputMode="numeric" defaultValue={p.billable_units ?? ""} placeholder="Billable units" aria-label="Billable units" className={inputClass} />
@@ -496,8 +496,8 @@ export default async function AccountPage({
                   {hidden}
                   <input type="hidden" name="contract_id" value={contract.id} />
                   <input type="hidden" name="billing_model" value={contract.billing_model} />
-                  <input name="label" placeholder="Label, for example Phase 2" aria-label="New phase label" className={inputClass} />
-                  <input name="effective_start" type="date" aria-label="New phase start date" className={inputClass} />
+                  <input name="label" placeholder="Note (optional), for example Lease-up" aria-label="Note" className={inputClass} />
+                  <input name="effective_start" type="date" aria-label="Starts on" className={inputClass} />
                   {contract.billing_model === "per_unit_valet" ? (
                     <>
                       <input name="units" inputMode="numeric" placeholder="Billable units" aria-label="Billable units" className={inputClass} />
@@ -506,7 +506,7 @@ export default async function AccountPage({
                   ) : (
                     <input name="flat" inputMode="decimal" placeholder="$ per month" aria-label="Monthly amount in dollars" className={`${inputClass} sm:col-span-2`} />
                   )}
-                  <SubmitButton className={primaryButton}>Add phase</SubmitButton>
+                  <SubmitButton className={primaryButton}>{phases.length === 0 ? "Set rate" : "Add a rate change"}</SubmitButton>
                 </form>
               </div>
             </Card>

@@ -161,14 +161,14 @@ export function NewAccountForm({
 
       {usesPhases(model) ? (
         <Card
-          title="Phases"
-          description="One row per step of the ramp, each starting on its own date. A contract with a single rate needs one row. Use 0 for a free month."
+          title="Billing"
+          description="Set what this property is billed each month and the date it starts. One row is all a single rate needs. Add a row for any month the units or price change, such as lease-up steps. Use 0 for a free month. A contract is optional: you can upload one later to check the numbers."
         >
           <div className="space-y-3">
             {phases.map((key) => (
               <div key={key} className="grid gap-2 sm:grid-cols-[1.2fr_1fr_0.8fr_0.8fr_auto]">
-                <input name="phase_label" placeholder="Label, for example Full rate" aria-label="Phase label" className={inputClass} />
-                <input name="phase_start" type="date" aria-label="Phase start date" className={inputClass} />
+                <input name="phase_label" placeholder="Note (optional)" aria-label="Note" className={inputClass} />
+                <input name="phase_start" type="date" aria-label="Starts on" className={inputClass} />
                 {model === "per_unit_valet" ? (
                   <>
                     <input name="phase_units" inputMode="numeric" placeholder="Billable units" aria-label="Billable units" className={inputClass} />
@@ -189,7 +189,7 @@ export function NewAccountForm({
             ))}
           </div>
           <button type="button" className={`${secondaryButton} mt-3`} onClick={() => setPhases([...phases, newKey()])}>
-            Add phase
+            Add a rate change
           </button>
         </Card>
       ) : (
