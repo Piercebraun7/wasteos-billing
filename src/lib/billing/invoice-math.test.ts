@@ -280,10 +280,10 @@ describe("tax", () => {
 });
 
 describe("invoice dates and cutover", () => {
-  it("invoice date is the last day of the service month; due date adds net days", () => {
-    expect(invoiceDates("2026-11-01", 30)).toEqual({ invoice_date: "2026-11-30", due_date: "2026-12-30" });
-    expect(invoiceDates("2026-12-01", 15)).toEqual({ invoice_date: "2026-12-31", due_date: "2027-01-15" });
-    expect(invoiceDates("2028-02-01", 30)).toEqual({ invoice_date: "2028-02-29", due_date: "2028-03-30" });
+  it("a monthly invoice is planned for the 1st after the service month; due date adds net days", () => {
+    expect(invoiceDates("2026-11-01", 30)).toEqual({ invoice_date: "2026-12-01", due_date: "2026-12-31" });
+    expect(invoiceDates("2026-12-01", 15)).toEqual({ invoice_date: "2027-01-01", due_date: "2027-01-16" });
+    expect(invoiceDates("2028-02-01", 30)).toEqual({ invoice_date: "2028-03-01", due_date: "2028-03-31" });
   });
   it("refuses any month before the account's go-live service month", () => {
     expect(mayInvoice("2026-10-01", "2026-11-01")).toBe(false);

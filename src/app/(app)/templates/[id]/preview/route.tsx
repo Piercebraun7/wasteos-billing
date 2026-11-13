@@ -7,7 +7,7 @@ import { resolveOptions } from "@/lib/pdf/template";
 export const runtime = "nodejs";
 
 /** A made-up invoice drawn with one template, so its layout can be checked before any real invoice uses it. */
-export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase } = await requireAdmin();
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) return new NextResponse("Template not found", { status: 404 });
@@ -16,7 +16,15 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     supabase.from("app_settings").select("*").maybeSingle(),
   ]);
   if (!template.data) return new NextResponse("Template not found", { status: 404 });
-  const layout = resolveOptions(template.data.options);
+  // The editor passes its unsaved ticks so the preview follows them; otherwise the saved version is drawn.
+  let unsaved: unknown = null;
+  try {
+    const raw = new URL(request.url).searchParams.get("o");
+    if (raw) unsaved = JSON.parse(raw);
+  } catch {
+    unsaved = null;
+  }
+  const layout = resolveOptions(unsaved ?? template.data.options);
   const company = settings.data;
   const contact = [company?.company_phone, company?.company_email].filter(Boolean).join(" or ");
   const buffer = await renderToBuffer(

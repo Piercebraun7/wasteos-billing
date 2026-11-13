@@ -1,10 +1,10 @@
-import Link from "next/link";
 import { SettingsTabs } from "@/components/section-tabs";
 import { SubmitButton } from "@/components/submit-button";
 import { Card, dangerButton, Field, inputClass, Notice, PageHeader, primaryButton, secondaryButton } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
-import { BLOCKS, resolveOptions } from "@/lib/pdf/template";
-import { addTemplate, makeDefault, removeTemplate, saveAssignment, saveCompanyDetails, saveTemplate } from "./actions";
+import { resolveOptions } from "@/lib/pdf/template";
+import { addTemplate, makeDefault, removeTemplate, saveAssignment, saveCompanyDetails } from "./actions";
+import { TemplateEditor } from "./template-editor";
 
 type Template = { id: string; name: string; is_default: boolean; options: unknown };
 type Account = { id: string; invoice_template_id: string | null; customer_reference: string | null; status: string; property: { name: string }; customer: { name: string } };
@@ -49,7 +49,7 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pr
         </form>
       </Card>
 
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="space-y-5">
         {templates.map((t) => {
           const options = resolveOptions(t.options);
           return (
@@ -58,30 +58,7 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pr
               title={t.is_default ? `${t.name} (default)` : t.name}
               description={t.is_default ? `Used by every property without its own template: ${accounts.length - accounts.filter((a) => a.invoice_template_id && a.invoice_template_id !== t.id).length} of ${accounts.length}.` : `Used by ${using(t.id)} propert${using(t.id) === 1 ? "y" : "ies"}.`}
             >
-              <form action={saveTemplate} className="space-y-4">
-                <input type="hidden" name="template_id" value={t.id} />
-                <Field label="Template name">
-                  <input name="name" required defaultValue={t.name} className={inputClass} />
-                </Field>
-                <div className="divide-y divide-line rounded-2xl border border-line">
-                  {BLOCKS.map((b) => (
-                    <label key={b.key} className="flex cursor-pointer items-start gap-3 px-4 py-3">
-                      <input type="checkbox" name={b.key} defaultChecked={options[b.key]} className="mt-1 size-4" />
-                      <span>
-                        <span className="block text-[15px] font-medium text-ink">{b.label}</span>
-                        <span className="block text-sm text-mute">{b.help}</span>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-                <Field label="Note on every invoice" hint="Optional. Prints under the charges, for example a thank you or a notice.">
-                  <textarea name="note" rows={2} maxLength={600} defaultValue={options.note} className={`${inputClass} h-auto py-2.5`} />
-                </Field>
-                <div className="flex flex-wrap gap-2">
-                  <SubmitButton className={primaryButton}>Save template</SubmitButton>
-                  <Link href={`/templates/${t.id}/preview`} target="_blank" className={secondaryButton}>Preview saved version</Link>
-                </div>
-              </form>
+              <TemplateEditor key={JSON.stringify(t.options) + t.name} id={t.id} name={t.name} initial={options} />
               {!t.is_default && (
                 <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
                   <form action={makeDefault}>

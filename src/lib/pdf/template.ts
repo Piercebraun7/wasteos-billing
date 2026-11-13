@@ -15,7 +15,7 @@ export type BlockKey = (typeof BLOCKS)[number]["key"];
 export type TemplateOptions = Record<BlockKey, boolean> & { note: string };
 
 export const DEFAULT_OPTIONS: TemplateOptions = {
-  managementCompany: true, reference: true, serviceDates: true, contact: true, outstanding: true,
+  managementCompany: true, reference: true, serviceDates: false, contact: true, outstanding: true,
   check: true, ach: true, nextMonth: true, lateFeeTerms: true, note: "",
 };
 

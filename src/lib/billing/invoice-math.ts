@@ -244,9 +244,13 @@ export function applyTax(
   return { lines: [...charges, taxLine(taxCents)], subtotal_cents: quoted, tax_cents: taxCents, total_cents: quoted + taxCents };
 }
 
-/** Invoice date is the last day of the service month; due date is that plus the contract's net days. */
+/**
+ * A monthly invoice goes out on the 1st of the month after the service month,
+ * and is due that date plus the contract's net days. This is the planned date
+ * shown on the draft; approval re-dates it to the day it is actually approved.
+ */
 export function invoiceDates(serviceMonth: ISODate, netDays: number): { invoice_date: ISODate; due_date: ISODate } {
-  const invoice_date = monthEnd(serviceMonth);
+  const invoice_date = addDays(monthEnd(serviceMonth), 1);
   return { invoice_date, due_date: addDays(invoice_date, netDays) };
 }
 

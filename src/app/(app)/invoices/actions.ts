@@ -191,7 +191,8 @@ export async function voidInvoice(fd: FormData) {
   if (!reason) toInvoice(id, "error", "Enter the reason for voiding this invoice.");
   const { error } = await supabase.rpc("void_invoice", { p_invoice_id: id, p_reason: reason });
   if (error) toInvoice(id, "error", error.message);
-  toInvoice(id, "saved", "Invoice voided. Its amount has come off the balance, and the month can be drafted again.");
+  const { data: row } = await supabase.from("invoices").select("qbo_invoice_id").eq("id", id).maybeSingle();
+  toInvoice(id, "saved", `Invoice voided. Its amount has come off the balance, and the month can be drafted again.${row?.qbo_invoice_id ? " It is still in QuickBooks: void it there too, so the books match." : ""}`);
 }
 
 /** Issues a credit memo against an invoice. */

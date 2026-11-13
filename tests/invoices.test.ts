@@ -73,7 +73,12 @@ describe("approval", () => {
       expect(await balance()).toBe(450000);
       const entry = await one<{ entry_type: string; amount_cents: number; entry_date: string; description: string }>(
         "select entry_type, amount_cents, entry_date::text, description from public.ledger_entries where source_id = $1", [a]);
-      expect(entry).toMatchObject({ entry_type: "invoice", entry_date: "2026-11-30", description: "Invoice 1219" });
+      // A monthly invoice is dated the day it is approved, and due that date plus its net days.
+      const dated = await one<{ today: string; invoice_date: string; days: number }>(
+        "select (now() at time zone 'America/Phoenix')::date::text as today, invoice_date::text, (due_date - invoice_date) as days from public.invoices where id = $1", [a]);
+      expect(dated.invoice_date).toBe(dated.today);
+      expect(Number(dated.days)).toBe(30);
+      expect(entry).toMatchObject({ entry_type: "invoice", entry_date: dated.today, description: "Invoice 1219" });
       expect(Number(entry.amount_cents)).toBe(300000);
       const inv = await one<{ status: string; approved_by: string }>("select status, approved_by from public.invoices where id = $1", [a]);
       expect(inv).toMatchObject({ status: "approved", approved_by: "00000000-0000-0000-0000-0000000000a1" });

@@ -71,7 +71,7 @@ export function PropertyTabs({ current }: { current: "list" | "schedule" | "cont
   );
 }
 
-export function SettingsTabs({ current }: { current: "general" | "items" | "templates" }) {
+export function SettingsTabs({ current }: { current: "general" | "items" | "templates" | "quickbooks" }) {
   return (
     <Tabs
       current={current}
@@ -79,6 +79,7 @@ export function SettingsTabs({ current }: { current: "general" | "items" | "temp
         { key: "general", href: "/settings", label: "General" },
         { key: "items", href: "/items", label: "Products and services" },
         { key: "templates", href: "/templates", label: "Invoice templates" },
+        { key: "quickbooks", href: "/quickbooks", label: "QuickBooks" },
       ]}
     />
   );

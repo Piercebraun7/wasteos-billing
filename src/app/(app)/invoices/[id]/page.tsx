@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Card, Eyebrow, Notice, dangerButton, inputClass, secondaryButton } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
 import { creditInvoice, voidInvoice } from "../actions";
+import { postOne } from "../../quickbooks/actions";
 import { requireAdmin } from "@/lib/auth";
 import { monthLabel } from "@/lib/billing/dates";
 import { formatDate } from "@/lib/format";
@@ -101,6 +102,15 @@ export default async function InvoicePage({
           <div className="mt-4 flex flex-wrap gap-2">
             <Link href={`/invoices/${invoice.id}/pdf`} target="_blank" className={secondaryButton}>Open PDF</Link>
             {invoice.status === "draft" && <Link href="/review" className={secondaryButton}>Go to review queue</Link>}
+            {invoice.invoice_number && invoice.status !== "void" && !invoice.qbo_invoice_id && (
+              <form action={postOne}>
+                <input type="hidden" name="invoice_id" value={invoice.id} />
+                <SubmitButton className={secondaryButton}>Post to QuickBooks</SubmitButton>
+              </form>
+            )}
+          </div>
+          <div className="mt-2 text-sm text-mute">
+            {invoice.qbo_invoice_id ? "In QuickBooks." : invoice.invoice_number ? "Not in QuickBooks yet." : ""}
           </div>
           {posted && (
             <div className="mt-6 space-y-3 border-t border-line pt-5">
