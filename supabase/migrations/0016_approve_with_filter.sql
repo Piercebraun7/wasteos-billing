@@ -47,3 +47,5 @@ begin
                 where invoice_id = v_invoice.id and billable_event_id is not null);
 
   return v_number;
+end
+$$;
