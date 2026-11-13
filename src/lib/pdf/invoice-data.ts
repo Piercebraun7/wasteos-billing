@@ -1,18 +1,22 @@
 import type { ISODate } from "../billing/dates";
+import type { TemplateOptions } from "./template";
 
 /** Everything the invoice PDF shows. Built once, at the moment of generation. */
 export type InvoiceDocument = {
-  company: { name: string; remittanceAddress: string; achInstructions: string | null; contactLine: string };
+  company: { name: string; remittanceAddress: string; achInstructions: string | null; contactLine: string; phone: string | null; email: string | null };
+  /** Which blocks print, from the template this property uses. */
+  layout: TemplateOptions;
   invoice: {
     number: string; // "Draft" until approved
     invoiceDate: ISODate;
     dueDate: ISODate;
     serviceMonth: string; // "November 2026"
+    servicePeriod: string | null; // "Nov 1 to Nov 30, 2026", for monthly service
     totalCents: number;
     isDraft: boolean;
     memo: string | null;
   };
-  billTo: { clientName: string; propertyName: string; addressLines: string[] };
+  billTo: { clientName: string; propertyName: string; addressLines: string[]; reference: string | null };
   charges: {
     title: string; // "Valet service"
     detail: string; // "November 2026" or "November 2026 · Nov 1 to Nov 15 (15 of 30 days)"

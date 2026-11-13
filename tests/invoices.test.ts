@@ -418,3 +418,27 @@ describe("void and credit memo", () => {
     await expect(as(db, stranger, () => db.query("select public.issue_credit_memo(gen_random_uuid(), null, 100, 'x')"))).rejects.toThrow(/Only a billing admin/);
   });
 });
+
+describe("invoice templates", () => {
+  it("starts with one default and never allows two", async () => {
+    await as(db, admin, async () => {
+      expect(Number((await one<{ n: number }>("select count(*)::int as n from public.invoice_templates where is_default")).n)).toBe(1);
+      await db.exec("savepoint s");
+      await expect(db.query("insert into public.invoice_templates (name, is_default) values ('Second', true)")).rejects.toThrow(/invoice_templates_one_default/);
+      await db.exec("rollback to savepoint s");
+    });
+  });
+  it("puts a property back on the default when its template is removed", async () => {
+    await as(db, admin, async () => {
+      const t = (await one<{ id: string }>("insert into public.invoice_templates (name) values ('Conservice') returning id")).id;
+      await db.query("update public.billing_accounts set invoice_template_id = $1 where id = $2", [t, account]);
+      await db.query("delete from public.invoice_templates where id = $1", [t]);
+      expect((await one<{ t: string | null }>("select invoice_template_id as t from public.billing_accounts where id = $1", [account])).t).toBeNull();
+    });
+  });
+  it("is closed to anyone who is not a billing admin", async () => {
+    await as(db, stranger, async () => {
+      expect((await db.query("select * from public.invoice_templates")).rows.length).toBe(0);
+    });
+  });
+});

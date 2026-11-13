@@ -33,7 +33,7 @@ const ALL_TABLES = [
   "contract_phases", "contract_event_rates", "invoices", "billable_events", "invoice_lines",
   "payments", "payment_applications", "credit_memos", "adjustments", "disputes",
   "ledger_entries", "rebate_accruals", "email_sends", "qbo_sync_log",
-  "source_discrepancies", "app_settings", "audit_log", "service_items", "recurring_invoices", "rate_increases",
+  "source_discrepancies", "app_settings", "audit_log", "service_items", "recurring_invoices", "rate_increases", "invoice_templates",
 ];
 // What a customer contact may read (their own rows only).
 const CUSTOMER_TABLES = [

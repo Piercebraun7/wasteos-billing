@@ -71,13 +71,14 @@ export function PropertyTabs({ current }: { current: "list" | "schedule" | "cont
   );
 }
 
-export function SettingsTabs({ current }: { current: "general" | "items" }) {
+export function SettingsTabs({ current }: { current: "general" | "items" | "templates" }) {
   return (
     <Tabs
       current={current}
       tabs={[
         { key: "general", href: "/settings", label: "General" },
         { key: "items", href: "/items", label: "Products and services" },
+        { key: "templates", href: "/templates", label: "Invoice templates" },
       ]}
     />
   );

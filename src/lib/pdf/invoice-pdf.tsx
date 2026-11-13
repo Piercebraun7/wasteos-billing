@@ -17,25 +17,25 @@ const LINE = "#DDE3E9";
 const PAD = 44;
 
 const s = StyleSheet.create({
-  page: { fontFamily: "RobotoFlex", fontSize: 9.5, color: MIDNIGHT, lineHeight: 1.45, paddingBottom: 52 },
-  band: { backgroundColor: MIDNIGHT, paddingHorizontal: PAD, paddingTop: 22, paddingBottom: 20, flexDirection: "row", justifyContent: "space-between", alignItems: "center", overflow: "hidden" },
+  page: { fontFamily: "RobotoFlex", fontSize: 9.5, color: MIDNIGHT, lineHeight: 1.4, paddingBottom: 46 },
+  band: { backgroundColor: MIDNIGHT, paddingHorizontal: PAD, paddingTop: 18, paddingBottom: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center", overflow: "hidden" },
   star: { position: "absolute", width: 230, height: 230, right: -70, top: -95, opacity: 0.16 },
   kicker: { fontFamily: "Rethink", fontWeight: 700, fontSize: 7.5, letterSpacing: 2.2, color: TOMATO, textTransform: "uppercase" },
   bandNumber: { fontFamily: "Rethink", fontWeight: 800, fontSize: 26, color: "#FFFFFF", lineHeight: 1.1, marginTop: 3 },
-  metaStrip: { backgroundColor: ICE, paddingHorizontal: PAD, paddingVertical: 11, flexDirection: "row" },
+  metaStrip: { backgroundColor: ICE, paddingHorizontal: PAD, paddingVertical: 9, flexDirection: "row" },
   label: { fontFamily: "Rethink", fontWeight: 700, fontSize: 6.8, letterSpacing: 1.5, color: MUTE, textTransform: "uppercase", marginBottom: 3 },
   strong: { fontFamily: "Rethink", fontWeight: 700 },
   body: { paddingHorizontal: PAD },
   h2: { fontFamily: "Rethink", fontWeight: 800, fontSize: 12.5, lineHeight: 1.2 },
-  tableHead: { flexDirection: "row", justifyContent: "space-between", borderBottomWidth: 1.2, borderBottomColor: MIDNIGHT, paddingBottom: 5, marginTop: 9 },
-  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 5, borderBottomWidth: 0.8, borderBottomColor: LINE },
+  tableHead: { flexDirection: "row", justifyContent: "space-between", borderBottomWidth: 1.2, borderBottomColor: MIDNIGHT, paddingBottom: 4, marginTop: 6 },
+  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 4, borderBottomWidth: 0.8, borderBottomColor: LINE },
   amount: { width: 120, textAlign: "right" },
   colDesc: { flex: 1, paddingRight: 14 },
   colUnits: { width: 62, textAlign: "right" },
   colRate: { width: 84, textAlign: "right" },
   colTotal: { width: 96, textAlign: "right" },
   mute: { color: MUTE },
-  total: { marginTop: 12, backgroundColor: MIDNIGHT, borderRadius: 10, flexDirection: "row", overflow: "hidden" },
+  total: { marginTop: 9, backgroundColor: MIDNIGHT, borderRadius: 10, flexDirection: "row", overflow: "hidden" },
   totalBar: { width: 7, backgroundColor: TOMATO },
   footer: { position: "absolute", left: PAD, right: PAD, bottom: 22, borderTopWidth: 0.8, borderTopColor: LINE, paddingTop: 7, fontSize: 7.4, color: MUTE, lineHeight: 1.5 },
   draft: { position: "absolute", top: 330, left: 70, fontSize: 110, color: "#EEF1F4", fontFamily: "Rethink", fontWeight: 800, transform: "rotate(-28deg)" },
@@ -60,7 +60,7 @@ function SummaryRow({ label, value, sub = false }: { label: string; value: strin
 }
 
 export function InvoicePdf({ doc }: { doc: InvoiceDocument }) {
-  const { invoice, billTo, charges, outstanding, company } = doc;
+  const { invoice, billTo, charges, outstanding, company, layout } = doc;
   const hasOutstanding =
     outstanding.priorBalanceCents !== 0 ||
     outstanding.unpaidInvoices.length > 0 ||
@@ -84,34 +84,32 @@ export function InvoicePdf({ doc }: { doc: InvoiceDocument }) {
           </View>
         </View>
         <View style={s.metaStrip}>
-          <Meta label="Service month" value={invoice.serviceMonth} />
+          {layout.serviceDates && invoice.servicePeriod ? <Meta label="Service period" value={invoice.servicePeriod} grow={1.25} /> : <Meta label="Service month" value={invoice.serviceMonth} />}
           <Meta label="Invoice date" value={formatDate(invoice.invoiceDate)} />
           <Meta label="Due date" value={formatDate(invoice.dueDate)} />
           <Meta label="Terms" value={`Net ${doc.terms.netDays}`} grow={0.6} />
         </View>
 
         <View style={s.body}>
-          <View style={{ flexDirection: "row", marginTop: 15 }}>
-            <View style={{ flex: 1, paddingRight: 16 }}>
+          <View style={{ flexDirection: "row", marginTop: 12 }}>
+            <View style={{ flex: 1.4, paddingRight: 16 }}>
               <Text style={s.label}>Bill to</Text>
-              <Text style={[s.strong, { fontSize: 11.5 }]}>{billTo.clientName}</Text>
-            </View>
-            <View style={{ flex: 1, paddingRight: 16 }}>
-              <Text style={s.label}>Property</Text>
               <Text style={[s.strong, { fontSize: 11.5 }]}>{billTo.propertyName}</Text>
-              {billTo.addressLines.map((l) => (
-                <Text key={l} style={s.mute}>{l}</Text>
-              ))}
+              {layout.managementCompany && <Text>{billTo.clientName}</Text>}
+              {billTo.addressLines.length > 0 && <Text style={s.mute}>{billTo.addressLines.join(", ")}</Text>}
+              {layout.reference && billTo.reference && <Text>Account / PO: {billTo.reference}</Text>}
             </View>
             <View style={{ flex: 1 }}>
               <Text style={s.label}>From</Text>
               <Text style={[s.strong, { fontSize: 11.5 }]}>{company.name}</Text>
               <Text style={s.mute}>{company.remittanceAddress}</Text>
+              {layout.contact && company.phone && <Text style={s.mute}>{company.phone}</Text>}
+              {layout.contact && company.email && <Text style={s.mute}>{company.email}</Text>}
             </View>
           </View>
 
           {/* 2. Current charges */}
-          <View style={{ marginTop: 16 }}>
+          <View style={{ marginTop: 12 }}>
             <Text style={s.h2}>Current Charges</Text>
             <View style={s.tableHead}>
               <Text style={[s.label, s.colDesc, { marginBottom: 0 }]}>Service</Text>
@@ -130,7 +128,7 @@ export function InvoicePdf({ doc }: { doc: InvoiceDocument }) {
                 <Text style={[s.colTotal, s.strong]}>{formatCents(c.amountCents)}</Text>
               </View>
             ))}
-            <View style={{ flexDirection: "row", justifyContent: "flex-end", paddingTop: 9 }}>
+            <View style={{ flexDirection: "row", justifyContent: "flex-end", paddingTop: 7 }}>
               <Text style={[s.label, { marginBottom: 0, marginTop: 2.5 }]}>This invoice</Text>
               <Text style={[s.amount, { fontFamily: "Rethink", fontWeight: 800, fontSize: 12.5 }]}>{formatCents(invoice.totalCents)}</Text>
             </View>
@@ -139,10 +137,12 @@ export function InvoicePdf({ doc }: { doc: InvoiceDocument }) {
           {invoice.memo && (
             <Text style={[s.mute, { marginTop: 8 }]}>{invoice.memo}</Text>
           )}
+          {layout.note ? <Text style={[s.mute, { marginTop: 8 }]}>{layout.note}</Text> : null}
 
           {/* 3. Outstanding balance */}
-          <View style={{ marginTop: 12, borderRadius: 10, borderWidth: 0.8, borderColor: LINE, paddingVertical: 11, paddingHorizontal: 16 }} wrap={false}>
-            <Text style={[s.h2, { marginBottom: 7 }]}>Outstanding Balance</Text>
+          {layout.outstanding && (
+          <View style={{ marginTop: 9, borderRadius: 10, borderWidth: 0.8, borderColor: LINE, paddingVertical: 9, paddingHorizontal: 16 }} wrap={false}>
+            <Text style={[s.h2, { marginBottom: 5 }]}>Outstanding Balance</Text>
             {!hasOutstanding && <Text style={s.mute}>No prior balance on this account. Thank you.</Text>}
             {hasOutstanding && (
               <>
@@ -159,7 +159,7 @@ export function InvoicePdf({ doc }: { doc: InvoiceDocument }) {
                   <SummaryRow key={i} label={f.description} value={formatCents(f.amountCents)} />
                 ))}
                 {outstanding.paymentsAndCredits.length > 0 && (
-                  <Text style={[s.label, { marginTop: 9 }]}>Payments and credits received since the last invoice (already reflected above)</Text>
+                  <Text style={[s.label, { marginTop: 6 }]}>Payments and credits received since the last invoice (already reflected above)</Text>
                 )}
                 {outstanding.paymentsAndCredits.map((p, i) => (
                   <SummaryRow key={i} sub label={`${formatDate(p.date)}, ${p.reference}`} value={formatCents(p.amountCents)} />
@@ -167,37 +167,42 @@ export function InvoicePdf({ doc }: { doc: InvoiceDocument }) {
               </>
             )}
           </View>
+          )}
 
           {/* 4. Total amount due */}
           <View style={s.total} wrap={false}>
             <View style={s.totalBar} />
-            <View style={{ flex: 1, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 13, paddingHorizontal: 18 }}>
+            <View style={{ flex: 1, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, paddingHorizontal: 18 }}>
               <View>
                 <Text style={{ fontFamily: "Rethink", fontWeight: 800, fontSize: 14, color: "#FFFFFF", lineHeight: 1.2 }}>Total Amount Due</Text>
                 <Text style={{ color: "#AEB6C2", fontSize: 8, marginTop: 3 }}>
                   The full account balance, including this invoice. Due {formatDate(invoice.dueDate)}.
                 </Text>
               </View>
-              <Text style={{ fontFamily: "Rethink", fontWeight: 800, fontSize: 30, color: "#FFFFFF", lineHeight: 1.1 }}>{formatCents(doc.totalAmountDueCents)}</Text>
+              <Text style={{ fontFamily: "Rethink", fontWeight: 800, fontSize: 26, color: "#FFFFFF", lineHeight: 1.1 }}>{formatCents(doc.totalAmountDueCents)}</Text>
             </View>
           </View>
 
           {/* 5. Remittance, and what is scheduled next */}
-          <View style={{ marginTop: 11, flexDirection: "row" }} wrap={false}>
-            <View style={{ flex: 1, paddingRight: 14 }}>
-              <Text style={s.label}>Pay by check</Text>
-              <Text>Mail checks to:</Text>
-              <Text style={s.strong}>{company.name}</Text>
-              <Text style={s.strong}>{company.remittanceAddress}</Text>
-            </View>
+          <View style={{ marginTop: 9, flexDirection: "row" }} wrap={false}>
+            {layout.check && (
+              <View style={{ flex: 1.25, paddingRight: 14 }}>
+                <Text style={s.label}>Pay by check</Text>
+                <Text>Make checks payable and mail to:</Text>
+                <Text style={s.strong}>{company.name}</Text>
+                <Text style={s.strong}>{company.remittanceAddress}</Text>
+                {!invoice.isDraft && <Text style={[s.mute, { fontSize: 8 }]}>Please write invoice {invoice.number} on the check.</Text>}
+              </View>
+            )}
             {doc.showAch && company.achInstructions && (
               <View style={{ flex: 1, paddingRight: 14 }}>
                 <Text style={s.label}>Pay by ACH</Text>
                 <Text>{company.achInstructions}</Text>
+                {!invoice.isDraft && <Text style={[s.mute, { fontSize: 8 }]}>Please reference invoice {invoice.number}.</Text>}
               </View>
             )}
-            {doc.nextMonth && (
-              <View style={{ width: 168, backgroundColor: ICE, borderRadius: 8, paddingVertical: 9, paddingHorizontal: 12 }}>
+            {layout.nextMonth && doc.nextMonth && (
+              <View style={{ width: 150, backgroundColor: ICE, borderRadius: 8, paddingVertical: 7, paddingHorizontal: 12 }}>
                 <Text style={s.label}>Next month, scheduled</Text>
                 <Text style={{ fontFamily: "Rethink", fontWeight: 800, fontSize: 14, lineHeight: 1.2 }}>{formatCents(doc.nextMonth.amountCents)}</Text>
                 <Text style={[s.mute, { fontSize: 7.6, marginTop: 2 }]}>{doc.nextMonth.label} service, before any one-off work</Text>
@@ -209,7 +214,7 @@ export function InvoicePdf({ doc }: { doc: InvoiceDocument }) {
         {/* 6. Footer */}
         <View style={s.footer} fixed>
           <Text>
-            Payment terms: net {doc.terms.netDays} days. {doc.terms.lateFeeSentence} {company.contactLine}
+            Payment terms: net {doc.terms.netDays} days. {layout.lateFeeTerms ? doc.terms.lateFeeSentence : ""} {company.contactLine}
           </Text>
         </View>
       </Page>

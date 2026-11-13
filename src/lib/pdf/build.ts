@@ -1,9 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { monthLabel } from "../billing/dates";
+import { monthEnd, monthLabel, shortDay } from "../billing/dates";
 import type { BillingModel, Phase } from "../billing/invoice-math";
 import { billingPhases, type Decision } from "../billing/escalation";
 import { nextMonth, scheduleCell } from "../billing/schedule";
 import { lateFeeSentence, type InvoiceDocument } from "./invoice-data";
+import { resolveOptions } from "./template";
 
 type Entry = { entry_date: string; entry_type: string; amount_cents: number; source_table: string; source_id: string; description: string | null };
 
@@ -13,7 +14,7 @@ export async function buildInvoiceDocument(supabase: SupabaseClient, invoiceId: 
     .from("invoices")
     .select(
       `*, lines:invoice_lines!invoice_lines_invoice_id_fkey(*, item:service_items(name)),
-       account:billing_accounts(id, property:properties(*), customer:customers(name, is_ach_payer),
+       account:billing_accounts(id, customer_reference, invoice_template_id, property:properties(*), customer:customers(name, is_ach_payer),
          contracts(status, net_days, created_at, billing_model, service_category, start_date, end_date, escalation_bps, phases:contract_phases(*), increases:rate_increases(*), late_fee_template:late_fee_templates(*)))`,
     )
     .eq("id", invoiceId)
@@ -21,7 +22,8 @@ export async function buildInvoiceDocument(supabase: SupabaseClient, invoiceId: 
   if (!invoice) return null;
 
   const accountId = invoice.account.id as string;
-  const [settings, ledger, others, applications, credits, payments, disputes] = await Promise.all([
+  const [templates, settings, ledger, others, applications, credits, payments, disputes] = await Promise.all([
+    supabase.from("invoice_templates").select("id, is_default, options"),
     supabase.from("app_settings").select("*").maybeSingle(),
     supabase.from("ledger_entries").select("*").eq("account_id", accountId),
     supabase.from("invoices").select("id, invoice_number, invoice_date, total_cents, status").eq("account_id", accountId).neq("id", invoiceId).in("status", ["approved", "sent", "partially_paid", "paid"]),
@@ -82,6 +84,9 @@ export async function buildInvoiceDocument(supabase: SupabaseClient, invoiceId: 
   const property = invoice.account.property;
   const cityLine = [property.city, [property.state, property.postal_code].filter(Boolean).join(" ")].filter(Boolean).join(", ");
   const company = settings.data;
+  const templateRows = (templates.data ?? []) as { id: string; is_default: boolean; options: unknown }[];
+  const layout = resolveOptions((templateRows.find((t) => t.id === invoice.account.invoice_template_id) ?? templateRows.find((t) => t.is_default))?.options);
+  const contact = [company?.company_phone, company?.company_email].filter(Boolean).join(" or ");
   const total = Number(invoice.total_cents);
   const serviceLabel = monthLabel(invoice.service_month);
   const scheduledService = invoice.kind !== "ad_hoc" && contract && contract.billing_model !== "per_event" && contract.billing_model !== "as_needed";
@@ -94,13 +99,17 @@ export async function buildInvoiceDocument(supabase: SupabaseClient, invoiceId: 
       name: company?.company_name ?? "Kaizen Waste, LLC",
       remittanceAddress: company?.remittance_address ?? "3459 E Pasadena Ave, Phoenix, AZ 85018",
       achInstructions: company?.ach_instructions ?? null,
-      contactLine: company?.email_reply_to ? `Questions: ${company.email_reply_to}.` : "Questions: reply to the email this invoice came with.",
+      contactLine: layout.contact && contact ? `Questions: ${contact}.` : company?.email_reply_to ? `Questions: ${company.email_reply_to}.` : "Questions: reply to the email this invoice came with.",
+      phone: company?.company_phone ?? null,
+      email: company?.company_email ?? null,
     },
+    layout,
     invoice: {
       number: invoice.invoice_number ? String(invoice.invoice_number) : "Draft",
       invoiceDate: invoice.invoice_date,
       dueDate: invoice.due_date,
       serviceMonth: monthLabel(invoice.service_month),
+      servicePeriod: invoice.kind === "ad_hoc" ? null : `${shortDay(invoice.service_month)} to ${shortDay(monthEnd(invoice.service_month))}, ${invoice.service_month.slice(0, 4)}`,
       totalCents: total,
       isDraft: invoice.status === "draft",
       memo: invoice.memo ?? null,
@@ -109,12 +118,13 @@ export async function buildInvoiceDocument(supabase: SupabaseClient, invoiceId: 
       clientName: invoice.account.customer.name,
       propertyName: property.name,
       addressLines: [property.address_line1, property.address_line2, cityLine].filter(Boolean),
+      reference: (invoice.account.customer_reference as string | null)?.trim() || null,
     },
     charges: [...(invoice.lines as LineRow[])].sort((a, b) => a.sort_order - b.sort_order).map((l) => chargeRow(l, serviceLabel, invoice.kind === "ad_hoc")),
     nextMonth: following && following.amountCents !== null ? { label: monthLabel(following.month), amountCents: following.amountCents } : null,
     outstanding: { priorBalanceCents: priorTotal - lateFeeTotal, unpaidInvoices, lateFees, paymentsAndCredits },
     totalAmountDueCents: priorTotal + total,
-    showAch: Boolean(invoice.account.customer.is_ach_payer),
+    showAch: layout.ach && Boolean(company?.ach_instructions?.trim()),
     terms: { netDays: contract?.net_days ?? 30, lateFeeSentence: lateFeeSentence(contract?.late_fee_template ?? null) },
   };
 }

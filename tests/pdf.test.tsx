@@ -3,14 +3,16 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { expect, it } from "vitest";
 import { lateFeeSentence } from "@/lib/pdf/invoice-data";
 import { InvoicePdf } from "@/lib/pdf/invoice-pdf";
+import { DEFAULT_OPTIONS } from "@/lib/pdf/template";
 
 it("renders an invoice PDF", async () => {
   const sentence = lateFeeSentence({ flat_amount_cents: 0, percent_bps: 300, grace_days: 0, frequency: "recurring", recurrence_interval_days: 30, compounding: false });
   expect(sentence).toBe("A late fee of 3% of the unpaid balance applies once an invoice is past its due date, and again every 30 days until paid.");
   const buf = await renderToBuffer(<InvoicePdf doc={{
-    company: { name: "Kaizen Waste, LLC", remittanceAddress: "3459 E Pasadena Ave, Phoenix, AZ 85018", achInstructions: "Entered in Settings", contactLine: "Questions: reply to this email." },
-    invoice: { number: "1219", invoiceDate: "2026-11-30", dueDate: "2026-12-30", serviceMonth: "November 2026", totalCents: 247500, isDraft: false, memo: null },
-    billTo: { clientName: "Stellar Residential", propertyName: "Village at Liberty Farms", addressLines: ["5801 S. 51st Ave", "Laveen, AZ 85339"] },
+    company: { name: "Kaizen Waste, LLC", remittanceAddress: "3459 E Pasadena Ave, Phoenix, AZ 85018", achInstructions: "Entered in Settings", contactLine: "Questions: (602) 341-5575 or invoices@kaizen-waste.com.", phone: "(602) 341-5575", email: "invoices@kaizen-waste.com" },
+    layout: { ...DEFAULT_OPTIONS, note: "Thank you for your business." },
+    invoice: { number: "1219", invoiceDate: "2026-11-30", dueDate: "2026-12-30", serviceMonth: "November 2026", servicePeriod: "Nov 1 to Nov 30, 2026", totalCents: 247500, isDraft: false, memo: null },
+    billTo: { clientName: "Stellar Residential", propertyName: "Village at Liberty Farms", addressLines: ["5801 S. 51st Ave", "Laveen, AZ 85339"], reference: "KW-0001" },
     charges: [
       { title: "Valet service", detail: "November 2026 \u00b7 Nov 1 to Nov 15 (15 of 30 days)", units: "100", rateCents: 1250, amountCents: 62500 },
       { title: "Valet service", detail: "November 2026 \u00b7 Nov 16 to Nov 30 (15 of 30 days)", units: "240", rateCents: 1250, amountCents: 150000 },
