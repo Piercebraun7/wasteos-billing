@@ -4,6 +4,7 @@ import { Card, inputClass, Notice, PageHeader, secondaryButton } from "@/compone
 import { requireAdmin } from "@/lib/auth";
 import { emailIsConnected } from "@/lib/email/resend";
 import { setNextInvoiceNumber } from "../review/actions";
+import { sendTestEmail } from "./actions";
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
   const { supabase } = await requireAdmin();
@@ -40,6 +41,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           {row("Replies go to", data?.email_reply_to ?? "Not set")}
           {row("Always copied on customer emails", ((data?.always_cc as string[] | null) ?? []).join(", ") || "No one")}
           {row("Send to JR copies", data?.copy_address ?? "Not set")}
+          {connected && (
+            <form action={sendTestEmail} className="mt-3 border-t border-line pt-4">
+              <SubmitButton className={secondaryButton}>Send a test email to myself</SubmitButton>
+            </form>
+          )}
         </Card>
 
         <Card title="Company on invoices">
