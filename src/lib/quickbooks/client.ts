@@ -59,7 +59,12 @@ async function tokenRequest(body: Record<string, string>): Promise<TokenReply | 
       cache: "no-store",
     });
     const json = (await res.json().catch(() => ({}))) as Partial<TokenReply> & { error?: string; error_description?: string };
-    if (!res.ok || !json.access_token || !json.refresh_token) return { error: json.error_description ?? json.error ?? `QuickBooks answered with status ${res.status}.` };
+    if (!res.ok || !json.access_token || !json.refresh_token) {
+      const tid = res.headers.get("intuit_tid");
+      const message = json.error_description ?? json.error ?? `QuickBooks answered with status ${res.status}.`;
+      console.error("QuickBooks sign-in request failed", { grant: body.grant_type, status: res.status, intuit_tid: tid, message });
+      return { error: tid ? `${message} (Intuit reference ${tid})` : message };
+    }
     return json as TokenReply;
   } catch (e) {
     return { error: e instanceof Error ? e.message : "QuickBooks could not be reached." };
@@ -135,7 +140,11 @@ export async function connect(supabase: SupabaseClient): Promise<Qbo | { error: 
       const json = (await res.json().catch(() => ({}))) as { Fault?: { Error?: { Message?: string; Detail?: string }[] } };
       if (!res.ok || json.Fault) {
         const f = json.Fault?.Error?.[0];
-        return { error: f ? [f.Message, f.Detail].filter(Boolean).join(": ") : `QuickBooks answered with status ${res.status}.` };
+        // Intuit's reference for this exact request. Their support team can look a problem up by it.
+        const tid = res.headers.get("intuit_tid");
+        const message = f ? [f.Message, f.Detail].filter(Boolean).join(": ") : `QuickBooks answered with status ${res.status}.`;
+        console.error("QuickBooks request failed", { path: path.split("?")[0], status: res.status, intuit_tid: tid, message });
+        return { error: tid ? `${message} (Intuit reference ${tid})` : message };
       }
       return json as T;
     } catch (e) {

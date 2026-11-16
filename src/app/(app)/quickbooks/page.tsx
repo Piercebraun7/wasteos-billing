@@ -39,6 +39,9 @@ export default async function QuickBooksPage({ searchParams }: { searchParams: P
       {saved && <Notice kind="ok">{saved}</Notice>}
       {error && <Notice kind="error">{error}</Notice>}
       {children}
+      <p className="text-sm text-mute">
+        Need help with the QuickBooks connection? Write to <a href="mailto:invoices@kaizen-waste.com" className="font-medium text-ink underline">invoices@kaizen-waste.com</a> or call (602) 341-5575.
+      </p>
     </div>
   );
 
