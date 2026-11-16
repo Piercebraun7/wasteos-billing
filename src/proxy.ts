@@ -27,7 +27,9 @@ export async function proxy(request: NextRequest) {
   const user = data?.claims?.sub ?? null;
 
   const onLogin = request.nextUrl.pathname.startsWith("/login");
-  if (!user && !onLogin) {
+  // The license agreement and privacy policy are public: anyone may read them without signing in.
+  const isPublic = request.nextUrl.pathname.startsWith("/legal/");
+  if (!user && !onLogin && !isPublic) {
     const target = request.nextUrl.clone();
     target.pathname = "/login";
     target.search = "";

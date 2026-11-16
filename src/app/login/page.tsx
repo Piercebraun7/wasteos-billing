@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Wordmark } from "@/components/ui";
 import { createClient, currentUser, isBillingAdmin } from "@/lib/supabase/server";
@@ -35,7 +36,10 @@ export default async function LoginPage() {
 
       <footer className="relative flex items-center justify-between px-6 py-6 font-mono text-[10px] uppercase tracking-[0.2em] text-white/35 sm:px-10">
         <span>Kaizen Waste, LLC</span>
-        <span>Phoenix, Arizona</span>
+        <span className="flex gap-4">
+          <Link href="/legal/terms" className="hover:text-white">License agreement</Link>
+          <Link href="/legal/privacy" className="hover:text-white">Privacy policy</Link>
+        </span>
       </footer>
     </main>
   );
