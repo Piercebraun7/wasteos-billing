@@ -50,6 +50,21 @@ export default async function QuickBooksPage({ searchParams }: { searchParams: P
             <p className="text-sm font-medium text-ink">Redirect address to paste into your Intuit app</p>
             <p className="mt-1 select-all break-all rounded-xl border border-line bg-slate-50 px-3 py-2 font-mono text-sm text-ink">{redirectUri(origin)}</p>
           </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[
+              ["Host domain", origin.replace(/^https?:\/\//, "")],
+              ["Launch URL", `${origin}/quickbooks`],
+              ["Connect or reconnect URL", `${origin}/api/quickbooks/connect`],
+              ["Disconnect URL", `${origin}/api/quickbooks/disconnected`],
+              ["End user license agreement", `${origin}/legal/terms`],
+              ["Privacy policy", `${origin}/legal/privacy`],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <p className="text-sm font-medium text-ink">{label}</p>
+                <p className="mt-1 select-all break-all rounded-xl border border-line bg-slate-50 px-3 py-2 font-mono text-sm text-ink">{value}</p>
+              </div>
+            ))}
+          </div>
           {configured ? (
             <a href="/api/quickbooks/connect" className={primaryButton}>Connect QuickBooks</a>
           ) : (
