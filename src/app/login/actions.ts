@@ -16,10 +16,15 @@ export async function signIn(
   }
 
   const supabase = await createClient();
+  const captchaToken = String(formData.get("captcha_token") ?? "") || undefined;
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
+    options: captchaToken ? { captchaToken } : undefined,
   });
+  if (error && /captcha/i.test(error.message)) {
+    return { error: "The security check did not pass. Wait for the check mark, then try again." };
+  }
   if (error) {
     return { error: "That email and password did not match. Try again." };
   }

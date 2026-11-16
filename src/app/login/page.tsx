@@ -29,7 +29,7 @@ export default async function LoginPage() {
           <h1 className="mt-3 text-4xl font-extrabold tracking-tight sm:text-5xl">Sign in.</h1>
           <p className="mt-3 text-[15px] leading-relaxed text-white/55">Billing, statements, and balances for Kaizen Waste.</p>
           <div className="mt-8 rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-2xl shadow-black/40 backdrop-blur-xl">
-            <LoginForm />
+            <LoginForm siteKey={process.env.TURNSTILE_SITE_KEY?.trim() || null} />
           </div>
         </div>
       </div>
