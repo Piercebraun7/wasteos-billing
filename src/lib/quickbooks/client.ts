@@ -3,8 +3,26 @@
 // live in the qbo_connection table, readable only by billing admins.
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-const AUTHORIZE = "https://appcenter.intuit.com/connect/oauth2";
-const TOKEN = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
+// Used only if Intuit's discovery document cannot be read.
+const FALLBACK = { authorize: "https://appcenter.intuit.com/connect/oauth2", token: "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer" };
+let discovered: { authorize: string; token: string; at: number } | null = null;
+
+/** The sign-in and token addresses, read from Intuit's discovery document and remembered for a day. */
+async function endpoints(): Promise<{ authorize: string; token: string }> {
+  if (discovered && Date.now() - discovered.at < 24 * 60 * 60 * 1000) return discovered;
+  const doc = process.env.QBO_ENVIRONMENT === "sandbox" ? "openid_sandbox_configuration" : "openid_configuration";
+  try {
+    const res = await fetch(`https://developer.api.intuit.com/.well-known/${doc}`, { cache: "no-store" });
+    const json = (await res.json()) as { authorization_endpoint?: string; token_endpoint?: string };
+    if (res.ok && json.authorization_endpoint?.startsWith("https://") && json.token_endpoint?.startsWith("https://")) {
+      discovered = { authorize: json.authorization_endpoint, token: json.token_endpoint, at: Date.now() };
+      return discovered;
+    }
+  } catch {
+    // Fall through to the known addresses.
+  }
+  return FALLBACK;
+}
 const SCOPE = "com.intuit.quickbooks.accounting";
 const MINOR = "75";
 
@@ -18,7 +36,7 @@ const apiBase = () =>
 /** The address QuickBooks sends the person back to after they approve the connection. */
 export const redirectUri = (origin: string) => `${origin}/api/quickbooks/callback`;
 
-export function authorizeUrl(origin: string, state: string): string {
+export async function authorizeUrl(origin: string, state: string): Promise<string> {
   const q = new URLSearchParams({
     client_id: process.env.QBO_CLIENT_ID ?? "",
     response_type: "code",
@@ -26,7 +44,7 @@ export function authorizeUrl(origin: string, state: string): string {
     redirect_uri: redirectUri(origin),
     state,
   });
-  return `${AUTHORIZE}?${q}`;
+  return `${(await endpoints()).authorize}?${q}`;
 }
 
 type TokenReply = { access_token: string; refresh_token: string; expires_in: number; x_refresh_token_expires_in: number };
@@ -34,7 +52,7 @@ type TokenReply = { access_token: string; refresh_token: string; expires_in: num
 async function tokenRequest(body: Record<string, string>): Promise<TokenReply | { error: string }> {
   const basic = Buffer.from(`${process.env.QBO_CLIENT_ID}:${process.env.QBO_CLIENT_SECRET}`).toString("base64");
   try {
-    const res = await fetch(TOKEN, {
+    const res = await fetch((await endpoints()).token, {
       method: "POST",
       headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
       body: new URLSearchParams(body),

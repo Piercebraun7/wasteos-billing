@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   if (!qboIsConfigured()) return NextResponse.redirect(`${origin}/quickbooks?error=${encodeURIComponent("Add the QuickBooks Client ID and Client Secret in Vercel first.")}`);
   // A one-time value, checked when QuickBooks sends the person back, so nobody else can finish this connection.
   const state = randomBytes(24).toString("hex");
-  const response = NextResponse.redirect(authorizeUrl(origin, state));
+  const response = NextResponse.redirect(await authorizeUrl(origin, state));
   response.cookies.set("qbo_state", state, { httpOnly: true, secure: true, sameSite: "lax", path: "/api/quickbooks", maxAge: 600 });
   return response;
 }
