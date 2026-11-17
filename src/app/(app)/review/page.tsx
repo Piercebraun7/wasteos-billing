@@ -1,4 +1,4 @@
-import { describeTwin, possibleDuplicates } from "@/lib/billing/duplicates";
+import { describeTwin, lookAlikes, possibleDuplicates } from "@/lib/billing/duplicates";
 import Link from "next/link";
 import { SubmitButton } from "@/components/submit-button";
 import { dangerButton, Empty, Eyebrow, inputClass, Notice, PageHeader, primaryButton, secondaryButton } from "@/components/ui";
@@ -50,10 +50,12 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
   const nextNumber = settings.data?.next_invoice_number as number | null | undefined;
 
   // Anything that looks like the same bill made twice, across drafts and invoices already issued.
-  const twins = possibleDuplicates([
+  const everyInvoice = [
     ...allDrafts.map((d) => ({ id: d.id, account_id: d.account_id, invoice_number: null, status: "draft", origin: "app", service_category: d.service_category, service_month: d.service_month, invoice_date: d.invoice_date, total_cents: Number(d.total_cents) })),
     ...posted.map((p) => ({ ...p, total_cents: Number(p.total_cents) })),
-  ]);
+  ];
+  const twins = possibleDuplicates(everyInvoice);
+  const similar = lookAlikes(everyInvoice);
   const flaggedDrafts = allDrafts.filter((d) => twins.has(d.id));
 
   const today = todayInPhoenix();
@@ -75,9 +77,9 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
 
       {flaggedDrafts.length > 0 && (
         <div role="alert" className="rounded-3xl border-2 border-red-300 bg-red-50 p-5 sm:px-7">
-          <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-red-700">Possible duplicates</p>
+          <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-red-700">Duplicates</p>
           <p className="mt-1 text-[15px] font-semibold text-red-900">
-            {flaggedDrafts.length} draft{flaggedDrafts.length === 1 ? " looks" : "s look"} like a bill that already exists: same property, same amount, and the same day or month.
+            {flaggedDrafts.length} draft{flaggedDrafts.length === 1 ? " matches" : "s match"} another bill: same property, same date, same amount. Only one of each can be approved and sent.
           </p>
           <ul className="mt-2 space-y-1 text-sm text-red-900">
             {flaggedDrafts.map((d) => (
@@ -86,7 +88,7 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
               </li>
             ))}
           </ul>
-          <p className="mt-2 text-sm text-red-800">This is only a heads-up. Reject any that should not go out: Approve all approves these along with the rest.</p>
+          <p className="mt-2 text-sm text-red-800">Approving one stops its twin from being approved. Reject the extra one to clear it from the queue.</p>
         </div>
       )}
 
@@ -144,6 +146,8 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
         if (phases.size > 1 || (previous && previous.origin === "app" && [...phases].some((p) => !previousPhases.has(p)))) flags.push("Rate change this month");
         if (previous && Number(previous.total_cents) !== Number(d.total_cents)) flags.push("Amount differs from last month");
         const twin = twins.get(d.id);
+        const alike = similar.get(d.id);
+        if (alike) flags.push(`Same amount as ${[...new Set(alike.map(describeTwin))].join(" and ")} this month, on another day`);
         if (d.account.contacts.length === 0) flags.push("Missing billing contact");
         if (unresolved.has(d.account.property.id)) flags.push("Unresolved source discrepancy");
         const lines = [...d.lines].sort((a, b) => a.sort_order - b.sort_order);
@@ -152,7 +156,7 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
           <section key={d.id} id={`draft-${d.id}`} className={`scroll-mt-6 overflow-hidden rounded-3xl border bg-white shadow-[0_1px_2px_rgb(16_24_40/0.04)] ${twin ? "border-2 border-red-300" : "border-line"}`}>
             {twin && (
               <p className="bg-red-600 px-5 py-2 text-sm font-semibold text-white sm:px-7">
-                Possible duplicate of {[...new Set(twin.map(describeTwin))].join(" and ")}. Check before approving.
+                Duplicate of {[...new Set(twin.map(describeTwin))].join(" and ")}. Only one of them can be approved.
               </p>
             )}
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line p-5 sm:p-7">

@@ -78,9 +78,14 @@ export async function approveAll(fd: FormData) {
   const { data, error } = await query;
   if (error) back("error", error.message);
   let approved = 0;
+  let duplicates = 0;
   const problems: string[] = [];
   for (const row of data ?? []) {
     const problem = await approveOne(supabase, row.id);
+    if (problem?.startsWith("Not approved: this is a duplicate")) {
+      duplicates++;
+      continue;
+    }
     if (problem && !problem.startsWith("Approved")) {
       problems.push(problem);
       break; // The same cause would stop every other draft too.
@@ -88,7 +93,8 @@ export async function approveAll(fd: FormData) {
     approved++;
     if (problem) problems.push(problem);
   }
-  back(problems.length ? "error" : "saved", `${approved} invoice${approved === 1 ? "" : "s"} approved.${problems.length ? ` ${problems[0]}` : ""}`);
+  const held = duplicates ? ` ${duplicates} duplicate${duplicates === 1 ? " was" : "s were"} not approved, because the same bill is already issued. ${duplicates === 1 ? "It is" : "They are"} still in the queue for you to reject.` : "";
+  back(problems.length || duplicates ? "error" : "saved", `${approved} invoice${approved === 1 ? "" : "s"} approved.${held}${problems.length ? ` ${problems[0]}` : ""}`);
 }
 
 export async function rejectDraft(fd: FormData) {

@@ -93,6 +93,8 @@ export default async function HomePage() {
     { n: off, label: "properties with billing switched off", href: "/schedule" },
   ].filter((t) => t.n > 0);
 
+  const goingOut = (approved.count ?? 0) + (drafts.count ?? 0) + remindersReady + noticesDue;
+
   return (
     <div className="space-y-8">
       <PageHeader eyebrow={formatDate(today)} title={`Welcome, ${name.split(" ")[0]}.`} />
@@ -109,11 +111,31 @@ export default async function HomePage() {
         </Link>
       </div>
 
+      {goingOut > 0 && (
+        <Link href="/outbox" className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border-2 border-tomato/40 bg-white p-5 transition hover:-translate-y-0.5 sm:px-7">
+          <span>
+            <span className="block font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-tomato">Reminder: waiting to go out</span>
+            <span className="mt-1 block text-[15px] text-slate-700">
+              {[
+                (approved.count ?? 0) ? `${approved.count} approved invoice${approved.count === 1 ? "" : "s"} to send` : "",
+                (drafts.count ?? 0) ? `${drafts.count} draft${drafts.count === 1 ? "" : "s"} to review` : "",
+                remindersReady ? `${remindersReady} payment reminder${remindersReady === 1 ? "" : "s"} due` : "",
+                noticesDue ? `${noticesDue} rate increase notice${noticesDue === 1 ? "" : "s"} due` : "",
+              ].filter(Boolean).join(" · ")}
+            </span>
+          </span>
+          <span className="flex items-center gap-3">
+            <span className="font-display text-4xl font-extrabold tabular-nums text-ink">{goingOut}</span>
+            <span className="text-sm font-medium text-ink">See what is going out &rarr;</span>
+          </span>
+        </Link>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
         <section>
           <div className="mb-3 flex items-center justify-between">
             <Eyebrow>Owes the most</Eyebrow>
-            <Link href="/accounts" className="text-sm font-medium text-ink underline-offset-4 hover:underline">All properties</Link>
+            <Link href="/customers" className="text-sm font-medium text-ink underline-offset-4 hover:underline">All accounts</Link>
           </div>
           {owing.length === 0 ? (
             <Empty>No one owes anything right now.</Empty>
@@ -123,7 +145,7 @@ export default async function HomePage() {
                 const late = overdueByAccount.get(r.account_id) ?? 0;
                 return (
                   <li key={r.account_id}>
-                    <Link href={`/accounts/${r.account_id}`} className="flex items-center gap-4 px-4 py-3.5 transition hover:bg-slate-50 sm:px-5">
+                    <Link href={`/customers/${r.account_id}`} className="flex items-center gap-4 px-4 py-3.5 transition hover:bg-slate-50 sm:px-5">
                       <Monogram name={r.property_name} />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-medium text-ink">{r.property_name}</span>

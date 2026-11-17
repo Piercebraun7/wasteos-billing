@@ -96,13 +96,13 @@ export async function createInvoice(fd: FormData): Promise<FormResult> {
   }
   if (!accountId) return { error: "Choose a customer." };
 
-  // The same property, date and amount as a bill that already exists is stopped once, so it is never made twice by accident.
-  if (text(fd, "duplicate_ok") !== "yes") {
+  // The same property, date and amount as a bill that already exists is never made twice.
+  {
     const twin = await supabase.from("invoices").select("invoice_number, status").eq("account_id", accountId).eq("invoice_date", invoiceDate).eq("total_cents", total).neq("status", "void").limit(1);
     if (twin.error) return { error: twin.error.message };
     const found = twin.data?.[0];
     if (found) {
-      return { error: `Possible duplicate: ${found.invoice_number ? `invoice ${found.invoice_number}` : "a draft"} already exists for this customer on the same date for the same amount. If this really is a second bill, click save again and it will go through.` };
+      return { error: `Duplicate: ${found.invoice_number ? `invoice ${found.invoice_number}` : "a draft"} already exists for this customer on the same date for the same amount, so this one was not saved. If it is a different bill, change the date or the lines. If the other one is wrong, reject or void it first.` };
     }
   }
 

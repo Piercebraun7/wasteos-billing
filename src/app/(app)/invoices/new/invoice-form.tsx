@@ -49,7 +49,6 @@ export function InvoiceForm({
   const [invoiceDate, setInvoiceDate] = useState(today);
   const [netDays, setNetDays] = useState(defaultNetDays);
   const [lines, setLines] = useState<Line[]>(() => [blank(today)]);
-  const [duplicateOk, setDuplicateOk] = useState(false);
   const [repeat, setRepeat] = useState(false);
 
   const [memo, setMemo] = useState("");
@@ -104,8 +103,6 @@ export function InvoiceForm({
     startTransition(async () => {
       const result = await createInvoice(formData);
       if (result?.error) {
-        // A possible duplicate is refused once. Saving again after reading the warning goes through.
-        setDuplicateOk(result.error.startsWith("Possible duplicate"));
         setError(result.error);
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
@@ -123,7 +120,6 @@ export function InvoiceForm({
       {error && <Notice kind="error">{error}</Notice>}
       <input type="hidden" name="account_id" value={accountId} />
       <input type="hidden" name="net_days" value={netDays} />
-      <input type="hidden" name="duplicate_ok" value={duplicateOk ? "yes" : ""} />
       <input type="hidden" name="layout_options" value={Object.keys(choices).length ? JSON.stringify(choices) : ""} />
 
       <Card title="Customer">
