@@ -150,6 +150,17 @@ export default async function InvoicePage({
               </form>
             </div>
           )}
+          {invoice.late_fee_for && canVoid && (
+            <div className="mt-6 space-y-3 border-t border-line pt-5">
+              <p className="text-sm font-semibold text-ink">Late fee</p>
+              <p className="text-sm text-mute">This is a late fee. Removing it takes the {formatCents(Number(invoice.total_cents))} off what the customer owes, and it will not be charged again for the same period.</p>
+              <form action={voidInvoice}>
+                <input type="hidden" name="invoice_id" value={invoice.id} />
+                <input type="hidden" name="reason" value="Late fee removed" />
+                <SubmitButton className={dangerButton}>Remove late fee</SubmitButton>
+              </form>
+            </div>
+          )}
           {posted && (
             <div className="mt-6 space-y-3 border-t border-line pt-5">
               <p className="text-sm font-semibold text-ink">Fix this invoice</p>

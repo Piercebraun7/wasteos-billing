@@ -14,6 +14,8 @@
 export type DupeRow = {
   id: string; account_id: string; invoice_number: number | null; status: string; origin: string;
   service_category: string | null; service_month: string; invoice_date: string; total_cents: number;
+  /** Set on a late fee: the invoice it is a fee on. Two fees for two different invoices are never duplicates of each other. */
+  late_fee_for?: string | null;
 };
 
 function grouped(rows: DupeRow[], keyOf: (r: DupeRow) => string | null): Map<string, DupeRow[]> {
@@ -31,7 +33,7 @@ function grouped(rows: DupeRow[], keyOf: (r: DupeRow) => string | null): Map<str
   return out;
 }
 
-const dayKey = (r: DupeRow) => `${r.account_id}|${r.invoice_date}|${Number(r.total_cents)}`;
+const dayKey = (r: DupeRow) => `${r.account_id}|${r.invoice_date}|${Number(r.total_cents)}|${r.late_fee_for ?? ""}`;
 
 /** Same property, same invoice date, same total. */
 export function possibleDuplicates(rows: DupeRow[]): Map<string, DupeRow[]> {
@@ -40,7 +42,7 @@ export function possibleDuplicates(rows: DupeRow[]): Map<string, DupeRow[]> {
 
 /** Same property, service, month and total on a different day. A heads-up only. */
 export function lookAlikes(rows: DupeRow[]): Map<string, DupeRow[]> {
-  const sameMonth = grouped(rows, (r) => (r.origin === "app" ? `${r.account_id}|${r.service_category ?? ""}|${r.service_month}|${Number(r.total_cents)}` : null));
+  const sameMonth = grouped(rows, (r) => (r.origin === "app" && !r.late_fee_for ? `${r.account_id}|${r.service_category ?? ""}|${r.service_month}|${Number(r.total_cents)}` : null));
   const out = new Map<string, DupeRow[]>();
   for (const [id, others] of sameMonth) {
     const me = rows.find((r) => r.id === id)!;

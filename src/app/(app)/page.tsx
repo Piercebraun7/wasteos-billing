@@ -31,7 +31,8 @@ export default async function HomePage() {
     supabase.from("email_sends").select("invoice_id").eq("kind", "reminder"),
   ]);
   const remindedIds = new Set((reminded.data ?? []).map((r) => r.invoice_id as string));
-  let remindersReady = 0;
+  // One overdue notice per property, once an invoice is five days past due.
+  const noticeAccounts = new Set<string>();
 
   // Who owes money.
   const rows = ((overview.data ?? []) as AccountRow[]).filter((r) => r.status === "active");
@@ -43,9 +44,10 @@ export default async function HomePage() {
   const overdueByAccount = new Map<string, number>();
   for (const inv of open.data ?? []) {
     const remaining = Number(inv.total_cents) - (reduced.get(inv.id) ?? 0);
-    if (remaining > 0 && inv.due_date <= today && inv.status !== "approved" && !remindedIds.has(inv.id)) remindersReady++;
+    if (remaining > 0 && addDays(inv.due_date, 5) < today && inv.status !== "approved" && !remindedIds.has(inv.id)) noticeAccounts.add(inv.account_id);
     if (remaining > 0 && inv.due_date < today) overdueByAccount.set(inv.account_id, (overdueByAccount.get(inv.account_id) ?? 0) + remaining);
   }
+  const remindersReady = noticeAccounts.size;
   const overdue = [...overdueByAccount.values()].reduce((a, b) => a + b, 0);
   const owing = rows.filter((r) => Number(r.balance_cents) > 0).sort((a, b) => Number(b.balance_cents) - Number(a.balance_cents));
 
@@ -85,7 +87,7 @@ export default async function HomePage() {
   const todo = [
     { n: drafts.count ?? 0, label: "to review", href: "/review" },
     { n: approved.count ?? 0, label: "approved and ready to send", href: "/send" },
-    { n: remindersReady, label: "payment reminders ready to send", href: "/invoices?view=unpaid" },
+    { n: remindersReady, label: "overdue notices ready to send", href: "/invoices?view=unpaid" },
     { n: owing.filter((r) => overdueByAccount.has(r.account_id)).length, label: "properties with an overdue invoice", href: "/invoices?view=overdue" },
     { n: noticesDue, label: "rate increase notices due", href: "/increases" },
     { n: noContact, label: "properties with no one to send to", href: "/contacts" },
@@ -119,7 +121,7 @@ export default async function HomePage() {
               {[
                 (approved.count ?? 0) ? `${approved.count} approved invoice${approved.count === 1 ? "" : "s"} to send` : "",
                 (drafts.count ?? 0) ? `${drafts.count} draft${drafts.count === 1 ? "" : "s"} to review` : "",
-                remindersReady ? `${remindersReady} payment reminder${remindersReady === 1 ? "" : "s"} due` : "",
+                remindersReady ? `${remindersReady} overdue notice${remindersReady === 1 ? "" : "s"} ready` : "",
                 noticesDue ? `${noticesDue} rate increase notice${noticesDue === 1 ? "" : "s"} due` : "",
               ].filter(Boolean).join(" · ")}
             </span>

@@ -21,11 +21,12 @@ type Draft = {
   kind: string;
   service_category: string | null;
   recurring_invoice_id: string | null;
+  late_fee_for: string | null;
   memo: string | null;
   lines: Line[];
   account: { property: { id: string; name: string }; customer: { name: string }; contacts: { id: string }[] };
 };
-type Posted = { id: string; account_id: string; invoice_number: number | null; status: string; invoice_date: string; service_month: string; total_cents: number; origin: string; kind: string; service_category: string | null; lines: Line[] };
+type Posted = { id: string; account_id: string; late_fee_for: string | null; invoice_number: number | null; status: string; invoice_date: string; service_month: string; total_cents: number; origin: string; kind: string; service_category: string | null; lines: Line[] };
 
 export default async function ReviewPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string; service?: string }> }) {
   const { supabase } = await requireAdmin();
@@ -38,7 +39,7 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
       .select("*, lines:invoice_lines!invoice_lines_invoice_id_fkey(*), account:billing_accounts(property:properties(id, name), customer:customers(name), contacts:billing_contacts(id))")
       .eq("status", "draft")
       .order("created_at"),
-    supabase.from("invoices").select("id, account_id, invoice_number, status, invoice_date, service_month, total_cents, origin, kind, service_category, lines:invoice_lines!invoice_lines_invoice_id_fkey(*)").in("status", ["approved", "sent", "partially_paid", "paid"]),
+    supabase.from("invoices").select("id, account_id, late_fee_for, invoice_number, status, invoice_date, service_month, total_cents, origin, kind, service_category, lines:invoice_lines!invoice_lines_invoice_id_fkey(*)").in("status", ["approved", "sent", "partially_paid", "paid"]),
     supabase.from("app_settings").select("next_invoice_number").maybeSingle(),
     supabase.from("source_discrepancies").select("property_id").is("resolved_at", null),
   ]);
@@ -51,7 +52,7 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
 
   // Anything that looks like the same bill made twice, across drafts and invoices already issued.
   const everyInvoice = [
-    ...allDrafts.map((d) => ({ id: d.id, account_id: d.account_id, invoice_number: null, status: "draft", origin: "app", service_category: d.service_category, service_month: d.service_month, invoice_date: d.invoice_date, total_cents: Number(d.total_cents) })),
+    ...allDrafts.map((d) => ({ id: d.id, account_id: d.account_id, invoice_number: null, status: "draft", origin: "app", service_category: d.service_category, service_month: d.service_month, invoice_date: d.invoice_date, total_cents: Number(d.total_cents), late_fee_for: d.late_fee_for })),
     ...posted.map((p) => ({ ...p, total_cents: Number(p.total_cents) })),
   ];
   const twins = possibleDuplicates(everyInvoice);
@@ -141,6 +142,7 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
         const phases = new Set(d.lines.map((l) => l.contract_phase_id).filter(Boolean));
         const previousPhases = new Set((previous?.lines ?? []).map((l) => l.contract_phase_id).filter(Boolean));
         const flags: string[] = [];
+        if (d.late_fee_for) flags.push("Late fee: reject it to waive the fee");
         const oneOff = d.kind === "ad_hoc";
         if (!previous && !oneOff) flags.push("First invoice for this service");
         if (phases.size > 1 || (previous && previous.origin === "app" && [...phases].some((p) => !previousPhases.has(p)))) flags.push("Rate change this month");

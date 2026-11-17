@@ -26,6 +26,13 @@ describe("duplicates", () => {
   });
 });
 
+describe("late fees", () => {
+  it("never treats two late fees for two different invoices as duplicates, even on the same day for the same amount", () => {
+    expect(possibleDuplicates([row("1", { late_fee_for: "x", total_cents: 1050 }), row("2", { late_fee_for: "y", total_cents: 1050 })]).size).toBe(0);
+    expect(possibleDuplicates([row("1", { late_fee_for: "x", total_cents: 1050 }), row("2", { late_fee_for: "x", total_cents: 1050 })]).size).toBe(2);
+  });
+});
+
 describe("look-alikes", () => {
   it("points out a second bill in the same month for the same amount on another day, without calling it a duplicate", () => {
     const rows = [row("1"), row("2", { invoice_date: "2026-11-17" })];

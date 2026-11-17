@@ -9,7 +9,7 @@ import { pushInvoice } from "@/lib/quickbooks/push";
 /** Approves one draft, then stores its PDF exactly as issued. Returns an error message, or null. */
 export async function approveOne(supabase: SupabaseClient, invoiceId: string): Promise<string | null> {
   // A draft that matches an invoice already issued (same property, date and amount) is never approved, so the same bill cannot go out twice.
-  const columns = "id, account_id, invoice_number, status, origin, service_category, service_month, invoice_date, total_cents";
+  const columns = "id, account_id, invoice_number, status, origin, service_category, service_month, invoice_date, total_cents, late_fee_for";
   const { data: draft } = await supabase.from("invoices").select(columns).eq("id", invoiceId).maybeSingle();
   if (draft) {
     const { data: same } = await supabase.from("invoices").select(columns).eq("account_id", draft.account_id).eq("invoice_date", draft.invoice_date).eq("total_cents", draft.total_cents).neq("id", invoiceId);

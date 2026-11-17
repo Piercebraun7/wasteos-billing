@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { daysInMonth, parts, todayInPhoenix } from "@/lib/billing/dates";
 import { generateDrafts } from "@/lib/billing/drafts";
+import { draftLateFees } from "@/lib/billing/late-fee-drafts";
 import { connect, qboIsConfigured } from "@/lib/quickbooks/client";
 import { syncFromQuickBooks } from "@/lib/quickbooks/payments";
 
@@ -39,11 +40,14 @@ export async function GET(request: Request) {
     }
   }
 
-  if (daysLeft > daysBefore) return NextResponse.json({ today, drafted: false, reason: `Drafting starts ${daysBefore} days before the 1st.`, quickbooks });
+  // Every day, after payments are in: draft any late fee that has fallen due. Drafts only; a person approves them.
+  const lateFees = await draftLateFees(supabase, today).catch((e) => ({ created: 0, problems: [e instanceof Error ? e.message : "unknown error"] }));
+
+  if (daysLeft > daysBefore) return NextResponse.json({ today, drafted: false, reason: `Drafting starts ${daysBefore} days before the 1st.`, quickbooks, lateFees });
 
   try {
     const run = await generateDrafts(supabase, `${today.slice(0, 7)}-01`);
-    return NextResponse.json({ today, drafted: true, created: run.created.length, skipped: run.skipped, quickbooks });
+    return NextResponse.json({ today, drafted: true, created: run.created.length, skipped: run.skipped, quickbooks, lateFees });
   } catch (e) {
     return NextResponse.json({ today, drafted: false, error: e instanceof Error ? e.message : "unknown error", quickbooks }, { status: 500 });
   }

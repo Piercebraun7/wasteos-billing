@@ -1,5 +1,7 @@
 "use server";
 
+import { todayInPhoenix } from "@/lib/billing/dates";
+import { draftLateFees } from "@/lib/billing/late-fee-drafts";
 import { renderToBuffer } from "@react-pdf/renderer";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
@@ -222,4 +224,73 @@ export async function dismissReminder(fd: FormData) {
   revalidatePath("/invoices");
   revalidatePath("/");
   redirect(`/invoices?view=unpaid&${error ? "error" : "saved"}=${encodeURIComponent(error ? error.message : `No reminder will be sent for invoice ${invoice?.invoice_number}.`)}`);
+}
+
+/** Drafts any late fees that have fallen due. They wait in Review; nothing is charged until approved. */
+export async function checkLateFees() {
+  const { supabase } = await requireAdmin();
+  const run = await draftLateFees(supabase, todayInPhoenix());
+  revalidatePath("/", "layout");
+  const message = run.created
+    ? `${run.created} late fee${run.created === 1 ? "" : "s"} drafted. Approve or reject ${run.created === 1 ? "it" : "them"} in Review.`
+    : "No new late fees are due.";
+  redirect(`/invoices?view=unpaid&${run.problems.length ? "error" : "saved"}=${encodeURIComponent(run.problems.length ? `${message} Problems: ${run.problems.join("; ")}` : message)}`);
+}
+
+/** Reads which overdue invoices a notice form covers, keeping only real, unpaid, sent invoices on that property. */
+async function noticeInvoices(supabase: Awaited<ReturnType<typeof requireAdmin>>["supabase"], fd: FormData) {
+  const accountId = String(fd.get("account_id") ?? "");
+  const ids = String(fd.get("invoice_ids") ?? "").split(",").filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+  const { data } = await supabase.from("invoices").select("id, account_id, invoice_number, origin, status").in("id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]).eq("account_id", accountId).in("status", ["sent", "partially_paid"]);
+  return { accountId, invoices: (data ?? []) as { id: string; account_id: string; invoice_number: number; origin: string; status: string }[] };
+}
+
+/** Sends one overdue notice for a property, covering every invoice listed on the form. */
+export async function sendOverdueNotice(fd: FormData) {
+  const { supabase, user } = await requireAdmin();
+  const done = (kind: "saved" | "error", message: string): never => {
+    revalidatePath("/", "layout");
+    redirect(`/invoices?view=unpaid&${kind}=${encodeURIComponent(message)}`);
+  };
+  const subject = String(fd.get("subject") ?? "").trim();
+  const text = String(fd.get("body") ?? "").trim();
+  if (!subject || !text) done("error", "The notice needs a subject and a message.");
+  const { accountId, invoices } = await noticeInvoices(supabase, fd);
+  if (invoices.length === 0) done("error", "There is nothing overdue to send a notice for. It may have been paid a moment ago.");
+
+  const [account, settings] = await Promise.all([
+    supabase.from("billing_accounts").select("property:properties(name), contacts:billing_contacts(email, is_active, delivery)").eq("id", accountId).single(),
+    supabase.from("app_settings").select("email_sender, email_reply_to, always_cc").maybeSingle(),
+  ]);
+  if (account.error) done("error", account.error.message);
+  const acct = account.data as unknown as { property: { name: string }; contacts: { email: string; is_active: boolean; delivery: string }[] };
+  const contacts = acct.contacts.filter((c) => c.is_active);
+  const to = contacts.filter((c) => c.delivery !== "cc").map((c) => c.email.toLowerCase());
+  if (to.length === 0) done("error", `${acct.property.name} has no one in the To line. Add a contact first.`);
+  const cc = [...new Set([...contacts.filter((c) => c.delivery === "cc").map((c) => c.email.toLowerCase()), ...((settings.data?.always_cc as string[] | null) ?? []).map((e) => e.toLowerCase())])].filter((e) => !to.includes(e));
+
+  // Copies of invoices made in this app are attached. Ones first sent from QuickBooks are not: the customer has the original.
+  const attachments: Attachment[] = [];
+  for (const inv of invoices.filter((i) => i.origin !== "quickbooks_import")) {
+    const stored = await supabase.storage.from("invoices").download(pdfPath(inv.account_id, inv.id));
+    if (stored.data) attachments.push({ filename: `Kaizen Waste Invoice ${inv.invoice_number}.pdf`, content: Buffer.from(await stored.data.arrayBuffer()) });
+  }
+  const sent = await sendEmail({ from: settings.data?.email_sender ?? "Kaizen Waste <no-reply@msg.kaizen-waste.com>", to, cc, replyTo: settings.data?.email_reply_to ?? user.email ?? null, subject, text, attachments });
+  if ("error" in sent) done("error", `${acct.property.name}: ${sent.error}`);
+  const now = new Date().toISOString();
+  const log = await supabase.from("email_sends").insert(invoices.map((inv) => ({ account_id: accountId, invoice_id: inv.id, kind: "reminder", recipients: to, cc, subject, sent_at: now, provider_message_id: (sent as { id: string }).id })));
+  if (log.error) done("error", `The notice was sent, but recording it failed: ${log.error.message}`);
+  done("saved", `Overdue notice sent to ${acct.property.name}, covering invoice${invoices.length === 1 ? "" : "s"} ${invoices.map((i) => i.invoice_number).join(", ")}.`);
+}
+
+/** Notes that no notice is needed for a property's overdue invoices (for example the check is in hand). */
+export async function dismissOverdueNotice(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const { accountId, invoices } = await noticeInvoices(supabase, fd);
+  const now = new Date().toISOString();
+  const { error } = invoices.length
+    ? await supabase.from("email_sends").insert(invoices.map((inv) => ({ account_id: accountId, invoice_id: inv.id, kind: "reminder", recipients: [], subject: "No notice sent: dismissed", sent_at: now })))
+    : { error: null };
+  revalidatePath("/", "layout");
+  redirect(`/invoices?view=unpaid&${error ? "error" : "saved"}=${encodeURIComponent(error ? error.message : "No notice will be sent for those invoices.")}`);
 }

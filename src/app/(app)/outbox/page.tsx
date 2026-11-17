@@ -55,7 +55,7 @@ export default async function OutboxPage() {
   const drafts = rows.filter((r) => r.status === "draft").sort(byName);
   const ready = rows.filter((r) => r.status === "approved").sort(byName);
   const reminders = rows
-    .filter((r) => ["sent", "partially_paid"].includes(r.status) && r.due_date <= today && !remindedIds.has(r.id))
+    .filter((r) => ["sent", "partially_paid"].includes(r.status) && addDays(r.due_date, 5) < today && !remindedIds.has(r.id))
     .map((r) => ({ ...r, open: Number(r.total_cents) - (reduced.get(r.id) ?? 0) }))
     .filter((r) => r.open > 0)
     .sort((a, b) => a.due_date.localeCompare(b.due_date));
@@ -76,7 +76,7 @@ export default async function OutboxPage() {
         {drafts.map((r) => <Row key={r.id} href={`/invoices/${r.id}`} left={r.account.property.name} middle={`Draft · dated ${formatDate(r.invoice_date)}`} right={formatCents(Number(r.total_cents))} />)}
       </Section>
 
-      <Section title={`payment reminder${reminders.length === 1 ? "" : "s"} due`} count={reminders.length} note="These invoices reached their due date and still show as unpaid. Each reminder waits for you." href="/invoices?view=unpaid" action="Go to reminders">
+      <Section title={`overdue invoice${reminders.length === 1 ? "" : "s"} awaiting a notice`} count={reminders.length} note="More than five days past due and still unpaid. Each property gets one notice covering all of its overdue invoices." href="/invoices?view=unpaid" action="Go to overdue notices">
         {reminders.map((r) => <Row key={r.id} href={`/invoices/${r.id}`} left={r.account.property.name} middle={`Invoice ${r.invoice_number} · was due ${formatDate(r.due_date)}`} right={formatCents(r.open)} />)}
       </Section>
 

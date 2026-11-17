@@ -156,7 +156,7 @@ describe("drafts", () => {
   it("has the confirmed 3% monthly late fee template", async () => {
     const t = await one<{ percent_bps: number; frequency: string; recurrence_interval_days: number; compounding: boolean; grace_days: number; confirmed: boolean }>(
       "select percent_bps, frequency, recurrence_interval_days, compounding, grace_days, confirmed_at is not null as confirmed from public.late_fee_templates where name = '3% monthly'");
-    expect(t).toEqual({ percent_bps: 300, frequency: "recurring", recurrence_interval_days: 30, compounding: true, grace_days: 0, confirmed: true });
+    expect(t).toEqual({ percent_bps: 300, frequency: "recurring", recurrence_interval_days: 30, compounding: true, grace_days: 5, confirmed: true });
   });
 });
 
@@ -530,5 +530,30 @@ describe("payments recorded in QuickBooks", () => {
   });
   it("is refused for anyone who is not a billing admin", async () => {
     await expect(as(db, stranger, () => db.query("select public.record_qbo_paid(gen_random_uuid(), 100, '2026-12-15', null, null)"))).rejects.toThrow(/Only a billing admin/);
+  });
+});
+
+describe("late fee invoices", () => {
+  it("allows one fee per invoice per period, and frees the period only if the fee is voided", async () => {
+    await as(db, admin, async () => {
+      await db.query("update public.app_settings set next_invoice_number = coalesce(next_invoice_number, 2000) where singleton");
+      const base = (await one<{ id: string }>("select public.create_draft_invoice($1) as id", [draft("2028-01-01", 300000)])).id;
+      await db.query("select public.approve_invoice($1)", [base]);
+      const fee = async () => {
+        const id = (await one<{ id: string }>("select public.create_draft_invoice($1) as id", [JSON.stringify({
+          account_id: account, service_month: "2028-02-01", invoice_date: "2028-02-06", due_date: "2028-02-06", subtotal_cents: 9000, tax_cents: 0, total_cents: 9000, kind: "ad_hoc", service_category: "other",
+          lines: [{ line_type: "late_fee", description: "Late fee", quantity: 1, unit_price_cents: 9000, amount_cents: 9000 }],
+        })])).id;
+        return id;
+      };
+      const first = await fee();
+      await db.query("update public.invoices set late_fee_for = $1, late_fee_period = 1 where id = $2", [base, first]);
+      const second = await fee();
+      await db.exec("savepoint s");
+      await expect(db.query("update public.invoices set late_fee_for = $1, late_fee_period = 1 where id = $2", [base, second])).rejects.toThrow(/invoices_one_late_fee_per_period/);
+      await db.exec("rollback to savepoint s");
+      // A different period is fine.
+      await db.query("update public.invoices set late_fee_for = $1, late_fee_period = 2 where id = $2", [base, second]);
+    });
   });
 });
