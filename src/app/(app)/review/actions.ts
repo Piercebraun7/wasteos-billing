@@ -1,5 +1,6 @@
 "use server";
 
+import { possibleDuplicates, type DupeRow } from "@/lib/billing/duplicates";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
@@ -40,9 +41,12 @@ export async function generateDraftsAction(fd: FormData) {
   }
   const skipped = run.skipped.map((s) => `${s.property}: ${s.reason}`).join(" ");
   const label = monthLabel(`${month}-01`);
+  const kept = run.alreadyThere
+    ? ` ${run.alreadyThere} ${run.alreadyThere === 1 ? "was" : "were"} already drafted or invoiced for ${label} and left alone, so nothing was made twice.`
+    : "";
   back(
-    run.created.length ? "saved" : "error",
-    `${run.created.length} draft${run.created.length === 1 ? "" : "s"} created for ${label}.${skipped ? ` Skipped: ${skipped}` : ""}`,
+    run.created.length || (run.alreadyThere && !skipped) ? "saved" : "error",
+    `${run.created.length} draft${run.created.length === 1 ? "" : "s"} created for ${label}.${kept}${skipped ? ` Skipped: ${skipped}` : ""}`,
   );
 }
 
@@ -74,9 +78,18 @@ export async function approveAll(fd: FormData) {
   if (isServiceCategory(service)) query = query.eq("service_category", service);
   const { data, error } = await query;
   if (error) back("error", error.message);
+  // Drafts that look like a bill that already exists are left for a person to decide, one at a time.
+  const everything = await supabase.from("invoices").select("id, account_id, invoice_number, status, origin, service_category, service_month, invoice_date, total_cents").neq("status", "void");
+  if (everything.error) back("error", everything.error.message);
+  const twins = possibleDuplicates((everything.data ?? []) as DupeRow[]);
   let approved = 0;
+  let held = 0;
   const problems: string[] = [];
   for (const row of data ?? []) {
+    if (twins.has(row.id)) {
+      held++;
+      continue;
+    }
     const problem = await approveOne(supabase, row.id);
     if (problem && !problem.startsWith("Approved")) {
       problems.push(problem);
@@ -85,7 +98,8 @@ export async function approveAll(fd: FormData) {
     approved++;
     if (problem) problems.push(problem);
   }
-  back(problems.length ? "error" : "saved", `${approved} invoice${approved === 1 ? "" : "s"} approved.${problems.length ? ` ${problems[0]}` : ""}`);
+  const heldNote = held ? ` ${held} possible duplicate${held === 1 ? " was" : "s were"} left in the queue for you to check.` : "";
+  back(problems.length || held ? "error" : "saved", `${approved} invoice${approved === 1 ? "" : "s"} approved.${heldNote}${problems.length ? ` ${problems[0]}` : ""}`);
 }
 
 export async function rejectDraft(fd: FormData) {

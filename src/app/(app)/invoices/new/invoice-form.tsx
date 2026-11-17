@@ -10,10 +10,10 @@ import { createInvoice } from "../actions";
 
 type Account = { account_id: string; property_name: string; customer_name: string; balance_cents: number };
 type Item = { id: string; name: string; category: string; description: string | null; default_rate_cents: number | null };
-type Line = { key: number; item: string; description: string; quantity: string; rate: string };
+type Line = { key: number; item: string; itemText: string; newCategory: string; date: string; description: string; quantity: string; rate: string };
 
 let nextKey = 1;
-const blank = (): Line => ({ key: nextKey++, item: "", description: "", quantity: "1", rate: "" });
+const blank = (date = ""): Line => ({ key: nextKey++, item: "", itemText: "", newCategory: "other", date, description: "", quantity: "1", rate: "" });
 const TERMS = [
   { days: 0, label: "Due on receipt" },
   { days: 15, label: "Net 15" },
@@ -43,7 +43,8 @@ export function InvoiceForm({
   const [search, setSearch] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(today);
   const [netDays, setNetDays] = useState(defaultNetDays);
-  const [lines, setLines] = useState<Line[]>(() => [blank()]);
+  const [lines, setLines] = useState<Line[]>(() => [blank(today)]);
+  const [duplicateOk, setDuplicateOk] = useState(false);
   const [repeat, setRepeat] = useState(false);
 
   const selected = accounts.find((a) => a.account_id === accountId);
@@ -62,11 +63,11 @@ export function InvoiceForm({
   const update = (key: number, patch: Partial<Line>) => setLines((rows) => rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   function chooseItem(key: number, itemId: string) {
     const item = items.find((i) => i.id === itemId);
-    if (!item) return update(key, { item: itemId });
+    if (!item) return update(key, { item: "" });
     // Bulk work uses this property's normal price when it has one, otherwise the list price.
     const preset = item.category === "bulk" && item.default_rate_cents !== null ? bulkRates[accountId] : undefined;
     const cents = preset ?? item.default_rate_cents;
-    update(key, { item: itemId, description: item.description || item.name, rate: cents != null ? (cents < 0 ? "-" : "") + centsToInput(Math.abs(cents)) : "" });
+    update(key, { item: itemId, itemText: item.name, description: item.description || item.name, rate: cents != null ? (cents < 0 ? "-" : "") + centsToInput(Math.abs(cents)) : "" });
   }
 
   function submit(intent: "draft" | "approve", form: HTMLFormElement) {
@@ -76,6 +77,8 @@ export function InvoiceForm({
     startTransition(async () => {
       const result = await createInvoice(formData);
       if (result?.error) {
+        // A possible duplicate is refused once. Saving again after reading the warning goes through.
+        setDuplicateOk(result.error.startsWith("Possible duplicate"));
         setError(result.error);
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
@@ -93,6 +96,7 @@ export function InvoiceForm({
       {error && <Notice kind="error">{error}</Notice>}
       <input type="hidden" name="account_id" value={accountId} />
       <input type="hidden" name="net_days" value={netDays} />
+      <input type="hidden" name="duplicate_ok" value={duplicateOk ? "yes" : ""} />
 
       <Card title="Customer">
         {selected ? (
@@ -174,35 +178,31 @@ export function InvoiceForm({
       </Card>
 
       <Card title="Products and services">
-        <div className="hidden grid-cols-[1.3fr_1.6fr_5rem_7rem_7rem_auto] gap-2 pb-2 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-mute md:grid">
-          <span>Product or service</span><span>Description</span><span className="text-right">Qty</span><span className="text-right">Rate</span><span className="text-right">Amount</span><span className="w-[4.6rem]" />
+        <div className="hidden grid-cols-[9.5rem_1.3fr_1.5fr_4.5rem_6.5rem_6.5rem_auto] gap-2 pb-2 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-mute lg:grid">
+          <span>Date of service</span><span>Product or service</span><span>Description</span><span className="text-right">Qty</span><span className="text-right">Rate</span><span className="text-right">Amount</span><span className="w-[4.6rem]" />
         </div>
         <div className="space-y-2">
           {lines.map((l, i) => (
-            <div key={l.key} className="grid gap-2 md:grid-cols-[1.3fr_1.6fr_5rem_7rem_7rem_auto]">
-              <select name="line_item" value={l.item} onChange={(e) => chooseItem(l.key, e.target.value)} aria-label={`Line ${i + 1} product or service`} className={inputClass}>
-                <option value="">Choose, or type a description</option>
-                {SERVICE_ORDER.map((category) => {
-                  const group = items.filter((it) => it.category === category);
-                  return group.length ? (
-                    <optgroup key={category} label={SERVICES[category as ServiceCategory].label}>
-                      {group.map((it) => (
-                        <option key={it.id} value={it.id}>{it.name}</option>
-                      ))}
-                    </optgroup>
-                  ) : null;
-                })}
-              </select>
+            <div key={l.key} className="grid gap-2 lg:grid-cols-[9.5rem_1.3fr_1.5fr_4.5rem_6.5rem_6.5rem_auto]">
+              <input type="date" name="line_date" value={l.date} onChange={(e) => update(l.key, { date: e.target.value })} aria-label={`Line ${i + 1} date of service`} className={inputClass} />
+              <ItemPicker
+                items={items}
+                line={l}
+                label={`Line ${i + 1} product or service`}
+                onChoose={(id) => chooseItem(l.key, id)}
+                onType={(text) => update(l.key, { item: "", itemText: text })}
+                onCategory={(c) => update(l.key, { newCategory: c })}
+              />
               <input name="line_description" value={l.description} onChange={(e) => update(l.key, { description: e.target.value })} placeholder="What was done" aria-label={`Line ${i + 1} description`} className={inputClass} />
               <input name="line_quantity" value={l.quantity} onChange={(e) => update(l.key, { quantity: e.target.value })} inputMode="decimal" aria-label={`Line ${i + 1} quantity`} className={`${inputClass} text-right tabular-nums`} />
               <input name="line_rate" value={l.rate} onChange={(e) => update(l.key, { rate: e.target.value })} inputMode="decimal" placeholder="0.00" aria-label={`Line ${i + 1} rate in dollars`} className={`${inputClass} text-right tabular-nums`} />
               <p className="flex h-11 items-center justify-end px-1 text-[15px] font-semibold tabular-nums text-ink">{amounts[i] === null ? "" : formatCents(amounts[i]!)}</p>
-              <button type="button" className={secondaryButton} onClick={() => setLines((rows) => (rows.length > 1 ? rows.filter((r) => r.key !== l.key) : [blank()]))}>Remove</button>
+              <button type="button" className={secondaryButton} onClick={() => setLines((rows) => (rows.length > 1 ? rows.filter((r) => r.key !== l.key) : [blank(invoiceDate)]))}>Remove</button>
             </div>
           ))}
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-4 border-t border-line pt-4">
-          <button type="button" className={secondaryButton} onClick={() => setLines((rows) => [...rows, blank()])}>Add a line</button>
+          <button type="button" className={secondaryButton} onClick={() => setLines((rows) => [...rows, blank(rows.at(-1)?.date || invoiceDate)])}>Add a line</button>
           <p className="text-right">
             <span className="mr-4 font-mono text-[11px] uppercase tracking-[0.16em] text-mute">Invoice total</span>
             <span className="font-display text-3xl font-extrabold tabular-nums text-ink">{formatCents(total)}</span>
@@ -242,5 +242,77 @@ export function InvoiceForm({
         <span className="text-sm text-mute">Approving assigns the invoice number and adds it to the customer&apos;s balance. Nothing is emailed until you send it.</span>
       </div>
     </form>
+  );
+}
+
+/**
+ * Type to find a product or service. Matches narrow as you type. If nothing
+ * matches, what you typed can be added as a new one, saved with the invoice.
+ */
+function ItemPicker({
+  items, line, label, onChoose, onType, onCategory,
+}: {
+  items: Item[]; line: Line; label: string;
+  onChoose: (id: string) => void; onType: (text: string) => void; onCategory: (category: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const typed = line.itemText.trim();
+  const words = typed.toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = items.filter((it) => words.every((w) => `${it.name} ${SERVICES[it.category as ServiceCategory]?.label ?? ""}`.toLowerCase().includes(w))).slice(0, 8);
+  const exact = items.find((it) => it.name.toLowerCase() === typed.toLowerCase());
+  const isNew = !line.item && typed !== "" && !exact;
+  return (
+    <div className="relative">
+      <input type="hidden" name="line_item" value={line.item} />
+      <input type="hidden" name="line_item_new" value={isNew ? typed : ""} />
+      <input type="hidden" name="line_item_new_category" value={line.newCategory} />
+      <input
+        value={line.itemText}
+        onChange={(e) => { onType(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => { setOpen(false); if (exact && !line.item) onChoose(exact.id); }}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          if (matches[0] && !isNew) onChoose(matches[0].id);
+          setOpen(false);
+        }}
+        placeholder="Type to find or add"
+        aria-label={label}
+        autoComplete="off"
+        className={inputClass}
+      />
+      {open && (
+        <ul className="absolute left-0 top-full z-20 mt-1 max-h-72 w-full min-w-[22rem] overflow-auto rounded-2xl border border-line bg-white py-1 shadow-xl">
+          {matches.map((it) => (
+            <li key={it.id}>
+              <button type="button" onMouseDown={(e) => { e.preventDefault(); onChoose(it.id); setOpen(false); }} className="flex w-full items-center justify-between gap-3 px-3.5 py-2 text-left text-[15px] hover:bg-slate-50">
+                <span className="flex items-center gap-2 text-ink">
+                  <span className="size-2 rounded-full" style={{ backgroundColor: SERVICES[it.category as ServiceCategory]?.hex ?? "#94a3b8" }} aria-hidden />
+                  {it.name}
+                </span>
+                <span className="text-sm tabular-nums text-mute">{it.default_rate_cents != null ? formatCents(it.default_rate_cents) : ""}</span>
+              </button>
+            </li>
+          ))}
+          {matches.length === 0 && typed === "" && <li className="px-3.5 py-2 text-sm text-mute">No products or services yet. Type a name to add one.</li>}
+          {isNew && (
+            <li className="border-t border-line px-3.5 py-2 text-sm text-slate-700">
+              <span className="font-medium text-ink">Add &ldquo;{typed}&rdquo; as a new product or service.</span> It is saved when you save this invoice.
+            </li>
+          )}
+        </ul>
+      )}
+      {isNew && !open && (
+        <div className="mt-1 flex items-center gap-2 text-xs text-mute">
+          <span className="rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-800 ring-1 ring-amber-200">New</span>
+          <select value={line.newCategory} onChange={(e) => onCategory(e.target.value)} aria-label="Service for the new product" className="h-7 rounded-lg border border-line bg-white px-1.5 text-xs text-ink">
+            {SERVICE_ORDER.map((c) => (
+              <option key={c} value={c}>{SERVICES[c as ServiceCategory].label}</option>
+            ))}
+          </select>
+        </div>
+      )}
+    </div>
   );
 }

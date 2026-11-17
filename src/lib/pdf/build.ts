@@ -131,16 +131,18 @@ export async function buildInvoiceDocument(supabase: SupabaseClient, invoiceId: 
 
 type LineRow = {
   description: string; amount_cents: number; sort_order: number; line_type: string;
-  quantity: number; unit_price_cents: number; item: { name: string } | null;
+  quantity: number; unit_price_cents: number; item: { name: string } | null; period_start: string | null;
 };
 
 /** Splits a stored line into the columns the invoice shows. */
 function chargeRow(l: LineRow, serviceLabel: string, adHoc: boolean): InvoiceDocument["charges"][number] {
   if (adHoc) {
     const title = l.item?.name ?? l.description;
+    // One-off work shows the day it was done, so several visits on one invoice can be told apart.
+    const served = l.period_start ? `${shortDay(l.period_start)}, ${l.period_start.slice(0, 4)}` : "";
     return {
       title,
-      detail: l.description !== title ? l.description : "",
+      detail: [served, l.description !== title ? l.description : ""].filter(Boolean).join(" \u00b7 "),
       units: String(Number(l.quantity)),
       rateCents: Number(l.unit_price_cents),
       amountCents: Number(l.amount_cents),

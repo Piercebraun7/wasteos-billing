@@ -39,7 +39,7 @@ type AccountRow = {
   contracts: ContractRow[];
 };
 
-export type DraftRun = { created: string[]; skipped: { property: string; reason: string }[] };
+export type DraftRun = { created: string[]; skipped: { property: string; reason: string }[]; /** Monthly invoices that already existed for the month and were left alone. */ alreadyThere?: number };
 
 const isEventBased = (model: string) => model === "per_event" || model === "as_needed";
 
@@ -130,7 +130,10 @@ export async function generateDrafts(supabase: SupabaseClient, serviceMonth: ISO
         skip(`Its first month here is ${monthLabel(account.go_live_service_month)}. Earlier months belong to QuickBooks.`);
         continue;
       }
-      if (alreadyInvoiced.has(`${account.id}:${category}`)) continue;
+      if (alreadyInvoiced.has(`${account.id}:${category}`)) {
+        run.alreadyThere = (run.alreadyThere ?? 0) + 1;
+        continue;
+      }
 
       // Contracts keep billing past their term until billing is switched off, so no end date is applied.
       // An annual increase is billed only once it has been confirmed.

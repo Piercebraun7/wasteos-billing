@@ -29,6 +29,11 @@ export async function createInvoice(fd: FormData): Promise<FormResult> {
   const descriptions = fd.getAll("line_description").map(String);
   const quantities = fd.getAll("line_quantity").map(String);
   const rates = fd.getAll("line_rate").map(String);
+  const dates = fd.getAll("line_date").map(String);
+  const newNames = fd.getAll("line_item_new").map(String);
+  const newCategories = fd.getAll("line_item_new_category").map(String);
+  // A product or service typed in fresh on a line: saved once the invoice itself is known to be valid.
+  const toCreate = new Map<string, { name: string; category: string; rate: number }>();
   const { data: items } = await supabase.from("service_items").select("id, name, category");
   const itemById = new Map((items ?? []).map((i) => [i.id as string, i]));
   const lines: Record<string, unknown>[] = [];
@@ -38,14 +43,20 @@ export async function createInvoice(fd: FormData): Promise<FormResult> {
     const quantity = (quantities[i] ?? "").trim() || "1";
     const rateText = (rates[i] ?? "").trim();
     const item = itemById.get(itemIds[i] ?? "");
-    if (!description && !rateText && !item) continue;
-    const label = description || item?.name || "";
+    const newName = (newNames[i] ?? "").trim();
+    if (!description && !rateText && !item && !newName) continue;
+    const label = description || item?.name || newName;
+    const serviceDate = (dates[i] ?? "").trim() || invoiceDate;
+    if (!DATE.test(serviceDate)) return { error: `The date of service for "${label}" does not look right.` };
     if (!label) return { error: `Line ${i + 1} needs a product or service, or a description.` };
     const rate = parseSignedDollarsToCents(rateText);
     if (rate === null) return { error: `Enter a rate for "${label}", for example 350.00.` };
     const amount = lineAmountCents(quantity, rate);
     if (amount === null || Number(quantity) <= 0) return { error: `The quantity for "${label}" must be a number above zero, with at most two decimals.` };
+    const typedCategory = isServiceCategory(newCategories[i]) ? (newCategories[i] as string) : "other";
+    if (!item && newName && !toCreate.has(newName.toLowerCase())) toCreate.set(newName.toLowerCase(), { name: newName, category: typedCategory, rate });
     if (!category && item && isServiceCategory(item.category)) category = item.category;
+    if (!category && !item && newName) category = typedCategory;
     lines.push({
       line_type: amount < 0 ? "adjustment" : "per_event",
       description: label,
@@ -53,8 +64,9 @@ export async function createInvoice(fd: FormData): Promise<FormResult> {
       unit_price_cents: rate,
       amount_cents: amount,
       service_item_id: item?.id ?? "",
-      period_start: invoiceDate,
-      period_end: invoiceDate,
+      new_item: !item && newName ? newName.toLowerCase() : "",
+      period_start: serviceDate,
+      period_end: serviceDate,
     });
   }
   if (lines.length === 0) return { error: "Add at least one line." };
@@ -82,6 +94,31 @@ export async function createInvoice(fd: FormData): Promise<FormResult> {
     accountId = created.data as string;
   }
   if (!accountId) return { error: "Choose a customer." };
+
+  // The same property, date and amount as a bill that already exists is stopped once, so it is never made twice by accident.
+  if (text(fd, "duplicate_ok") !== "yes") {
+    const twin = await supabase.from("invoices").select("invoice_number, status").eq("account_id", accountId).eq("invoice_date", invoiceDate).eq("total_cents", total).neq("status", "void").limit(1);
+    if (twin.error) return { error: twin.error.message };
+    const found = twin.data?.[0];
+    if (found) {
+      return { error: `Possible duplicate: ${found.invoice_number ? `invoice ${found.invoice_number}` : "a draft"} already exists for this customer on the same date for the same amount. If this really is a second bill, click save again and it will go through.` };
+    }
+  }
+
+  // New products and services typed on the lines are added to the list now.
+  for (const fresh of toCreate.values()) {
+    const existing = await supabase.from("service_items").select("id").ilike("name", fresh.name).limit(1);
+    if (existing.error) return { error: existing.error.message };
+    let id = existing.data?.[0]?.id as string | undefined;
+    if (!id) {
+      const made = await supabase.from("service_items").insert({ name: fresh.name, category: fresh.category, default_rate_cents: fresh.rate }).select("id").single();
+      if (made.error) return { error: `"${fresh.name}" could not be added to products and services: ${made.error.message}` };
+      id = made.data.id as string;
+      revalidatePath("/items");
+    }
+    for (const l of lines) if (l.new_item === fresh.name.toLowerCase()) l.service_item_id = id;
+  }
+  for (const l of lines) delete l.new_item;
 
   const { data, error } = await supabase.rpc("create_draft_invoice", {
     p: {

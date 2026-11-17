@@ -1,3 +1,4 @@
+import { describeTwin, possibleDuplicates } from "@/lib/billing/duplicates";
 import Link from "next/link";
 import { SubmitButton } from "@/components/submit-button";
 import { dangerButton, Empty, Eyebrow, inputClass, Notice, PageHeader, primaryButton, secondaryButton } from "@/components/ui";
@@ -24,7 +25,7 @@ type Draft = {
   lines: Line[];
   account: { property: { id: string; name: string }; customer: { name: string }; contacts: { id: string }[] };
 };
-type Posted = { id: string; account_id: string; invoice_number: number | null; service_month: string; total_cents: number; origin: string; kind: string; service_category: string | null; lines: Line[] };
+type Posted = { id: string; account_id: string; invoice_number: number | null; status: string; invoice_date: string; service_month: string; total_cents: number; origin: string; kind: string; service_category: string | null; lines: Line[] };
 
 export default async function ReviewPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string; service?: string }> }) {
   const { supabase } = await requireAdmin();
@@ -37,7 +38,7 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
       .select("*, lines:invoice_lines!invoice_lines_invoice_id_fkey(*), account:billing_accounts(property:properties(id, name), customer:customers(name), contacts:billing_contacts(id))")
       .eq("status", "draft")
       .order("created_at"),
-    supabase.from("invoices").select("id, account_id, invoice_number, service_month, total_cents, origin, kind, service_category, lines:invoice_lines!invoice_lines_invoice_id_fkey(*)").in("status", ["approved", "sent", "partially_paid", "paid"]),
+    supabase.from("invoices").select("id, account_id, invoice_number, status, invoice_date, service_month, total_cents, origin, kind, service_category, lines:invoice_lines!invoice_lines_invoice_id_fkey(*)").in("status", ["approved", "sent", "partially_paid", "paid"]),
     supabase.from("app_settings").select("next_invoice_number").maybeSingle(),
     supabase.from("source_discrepancies").select("property_id").is("resolved_at", null),
   ]);
@@ -47,6 +48,13 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
   const posted = (postedRes.data ?? []) as unknown as Posted[];
   const unresolved = new Set((discrepancies.data ?? []).map((d) => d.property_id as string));
   const nextNumber = settings.data?.next_invoice_number as number | null | undefined;
+
+  // Anything that looks like the same bill made twice, across drafts and invoices already issued.
+  const twins = possibleDuplicates([
+    ...allDrafts.map((d) => ({ id: d.id, account_id: d.account_id, invoice_number: null, status: "draft", origin: "app", service_category: d.service_category, service_month: d.service_month, invoice_date: d.invoice_date, total_cents: Number(d.total_cents) })),
+    ...posted.map((p) => ({ ...p, total_cents: Number(p.total_cents) })),
+  ]);
+  const flaggedDrafts = allDrafts.filter((d) => twins.has(d.id));
 
   const today = todayInPhoenix();
   const defaultMonth = today.slice(0, 7);
@@ -63,6 +71,23 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
         <Notice kind="info">
           The starting invoice number is not set, so nothing can be approved yet. Set it in <Link href="/settings" className="font-medium underline">Settings</Link>.
         </Notice>
+      )}
+
+      {flaggedDrafts.length > 0 && (
+        <div role="alert" className="rounded-3xl border-2 border-red-300 bg-red-50 p-5 sm:px-7">
+          <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-red-700">Possible duplicates</p>
+          <p className="mt-1 text-[15px] font-semibold text-red-900">
+            {flaggedDrafts.length} draft{flaggedDrafts.length === 1 ? " looks" : "s look"} like a bill that already exists: same property, same amount, and the same day or month.
+          </p>
+          <ul className="mt-2 space-y-1 text-sm text-red-900">
+            {flaggedDrafts.map((d) => (
+              <li key={d.id}>
+                <a href={`#draft-${d.id}`} className="font-medium underline">{d.account.property.name}</a>, {formatCents(Number(d.total_cents))}: matches {[...new Set(twins.get(d.id)!.map(describeTwin))].join(" and ")}.
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-sm text-red-800">Reject the one that should not go out. Approve all skips these until you decide.</p>
+        </div>
       )}
 
       <form action={generateDraftsAction} className="flex flex-wrap items-center gap-2 rounded-3xl border border-line bg-white p-4 sm:px-6">
@@ -118,12 +143,18 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
         if (!previous && !oneOff) flags.push("First invoice for this service");
         if (phases.size > 1 || (previous && previous.origin === "app" && [...phases].some((p) => !previousPhases.has(p)))) flags.push("Rate change this month");
         if (previous && Number(previous.total_cents) !== Number(d.total_cents)) flags.push("Amount differs from last month");
+        const twin = twins.get(d.id);
         if (d.account.contacts.length === 0) flags.push("Missing billing contact");
         if (unresolved.has(d.account.property.id)) flags.push("Unresolved source discrepancy");
         const lines = [...d.lines].sort((a, b) => a.sort_order - b.sort_order);
 
         return (
-          <section key={d.id} className="overflow-hidden rounded-3xl border border-line bg-white shadow-[0_1px_2px_rgb(16_24_40/0.04)]">
+          <section key={d.id} id={`draft-${d.id}`} className={`scroll-mt-6 overflow-hidden rounded-3xl border bg-white shadow-[0_1px_2px_rgb(16_24_40/0.04)] ${twin ? "border-2 border-red-300" : "border-line"}`}>
+            {twin && (
+              <p className="bg-red-600 px-5 py-2 text-sm font-semibold text-white sm:px-7">
+                Possible duplicate of {[...new Set(twin.map(describeTwin))].join(" and ")}. Check before approving.
+              </p>
+            )}
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line p-5 sm:p-7">
               <div>
                 <Eyebrow>
