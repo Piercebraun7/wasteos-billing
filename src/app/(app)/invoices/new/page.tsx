@@ -2,11 +2,14 @@ import { InvoiceTabs } from "@/components/section-tabs";
 import { PageHeader } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { todayInPhoenix } from "@/lib/billing/dates";
+import { resolveOptions, type TemplateOptions } from "@/lib/pdf/template";
 import { InvoiceForm } from "./invoice-form";
 
 export default async function NewInvoicePage({ searchParams }: { searchParams: Promise<{ account?: string }> }) {
   const { supabase } = await requireAdmin();
-  const [accounts, items, settings, bulk] = await Promise.all([
+  const [templates, assigned, accounts, items, settings, bulk] = await Promise.all([
+    supabase.from("invoice_templates").select("id, is_default, options"),
+    supabase.from("billing_accounts").select("id, invoice_template_id").not("invoice_template_id", "is", null),
     supabase.from("account_overview").select("account_id, property_name, customer_name, balance_cents").order("property_name"),
     supabase.from("service_items").select("id, name, category, description, default_rate_cents").eq("is_active", true).order("sort_order"),
     supabase.from("app_settings").select("default_net_days").maybeSingle(),
@@ -17,6 +20,14 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
   for (const c of bulk.data ?? []) {
     const rate = (c.event_rates as { event_type: string; rate_cents: number }[]).find((r) => r.event_type === "bulk_pickup");
     if (rate) bulkRates[c.account_id as string] = Number(rate.rate_cents);
+  }
+  // What each property's template switches on, so the preview starts from the right layout.
+  const templateRows = (templates.data ?? []) as { id: string; is_default: boolean; options: unknown }[];
+  const standardLayout = resolveOptions(templateRows.find((t) => t.is_default)?.options);
+  const layouts: Record<string, TemplateOptions> = {};
+  for (const a of assigned.data ?? []) {
+    const t = templateRows.find((row) => row.id === a.invoice_template_id);
+    if (t) layouts[a.id as string] = resolveOptions(t.options);
   }
   const preselected = (await searchParams).account ?? "";
 
@@ -33,6 +44,8 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
         defaultNetDays={settings.data?.default_net_days ?? 30}
         preselected={preselected}
         bulkRates={bulkRates}
+        standardLayout={standardLayout}
+        layouts={layouts}
       />
     </>
   );

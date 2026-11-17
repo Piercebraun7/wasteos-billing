@@ -86,7 +86,7 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
               </li>
             ))}
           </ul>
-          <p className="mt-2 text-sm text-red-800">Reject the one that should not go out. Approve all skips these until you decide.</p>
+          <p className="mt-2 text-sm text-red-800">This is only a heads-up. Reject any that should not go out: Approve all approves these along with the rest.</p>
         </div>
       )}
 

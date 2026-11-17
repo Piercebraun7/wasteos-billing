@@ -6,6 +6,7 @@ import { requireAdmin } from "@/lib/auth";
 import { approveOne } from "@/lib/billing/approve";
 import { addDays, monthEnd, monthStart } from "@/lib/billing/dates";
 import { lineAmountCents, parseDollarsToCents, parseSignedDollarsToCents } from "@/lib/money";
+import { BLOCKS } from "@/lib/pdf/template";
 import { isServiceCategory } from "@/lib/services";
 
 const text = (fd: FormData, key: string) => String(fd.get(key) ?? "").trim();
@@ -137,6 +138,22 @@ export async function createInvoice(fd: FormData): Promise<FormResult> {
   });
   if (error) return { error: `The invoice was not saved: ${error.message}` };
   const invoiceId = data as string;
+
+  // Blocks switched on or off for this invoice only, from the preview on the form.
+  const layoutText = text(fd, "layout_options");
+  if (layoutText) {
+    let chosen: Record<string, boolean> = {};
+    try {
+      const parsed = JSON.parse(layoutText) as Record<string, unknown>;
+      chosen = Object.fromEntries(BLOCKS.filter((b) => typeof parsed[b.key] === "boolean").map((b) => [b.key, parsed[b.key] as boolean]));
+    } catch {
+      chosen = {};
+    }
+    if (Object.keys(chosen).length) {
+      const saved = await supabase.from("invoices").update({ layout_options: chosen }).eq("id", invoiceId);
+      if (saved.error) return { error: `The invoice was saved as a draft, but its layout choices were not: ${saved.error.message}` };
+    }
+  }
 
   // Repeat every month: save these lines as a recurring invoice, starting next month.
   if (fd.get("repeat") === "on") {

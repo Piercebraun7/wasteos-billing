@@ -4,7 +4,7 @@ import type { BillingModel, Phase } from "../billing/invoice-math";
 import { billingPhases, type Decision } from "../billing/escalation";
 import { nextMonth, scheduleCell } from "../billing/schedule";
 import { lateFeeSentence, type InvoiceDocument } from "./invoice-data";
-import { resolveOptions } from "./template";
+import { withOverrides } from "./template";
 
 type Entry = { entry_date: string; entry_type: string; amount_cents: number; source_table: string; source_id: string; description: string | null };
 
@@ -85,7 +85,7 @@ export async function buildInvoiceDocument(supabase: SupabaseClient, invoiceId: 
   const cityLine = [property.city, [property.state, property.postal_code].filter(Boolean).join(" ")].filter(Boolean).join(", ");
   const company = settings.data;
   const templateRows = (templates.data ?? []) as { id: string; is_default: boolean; options: unknown }[];
-  const layout = resolveOptions((templateRows.find((t) => t.id === invoice.account.invoice_template_id) ?? templateRows.find((t) => t.is_default))?.options);
+  const layout = withOverrides((templateRows.find((t) => t.id === invoice.account.invoice_template_id) ?? templateRows.find((t) => t.is_default))?.options, invoice.layout_options);
   const contact = [company?.company_phone, company?.company_email].filter(Boolean).join(" or ");
   const total = Number(invoice.total_cents);
   const serviceLabel = monthLabel(invoice.service_month);
