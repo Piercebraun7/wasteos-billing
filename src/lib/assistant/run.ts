@@ -16,7 +16,9 @@ export function assistantIsConnected(): boolean {
  */
 export async function askAssistant(supabase: SupabaseClient, history: ChatTurn[], today: string, askedBy: string): Promise<{ reply: string } | { error: string }> {
   if (!assistantIsConnected()) return { error: "The assistant is not switched on yet. Add ANTHROPIC_API_KEY in Vercel first." };
-  const client = new Anthropic();
+  // A key that belongs to the whole organization has to say which workspace it is working in.
+  const workspace = process.env.ANTHROPIC_WORKSPACE_ID?.trim();
+  const client = new Anthropic(workspace ? { defaultHeaders: { "anthropic-workspace-id": workspace } } : {});
   const messages: Anthropic.Beta.BetaMessageParam[] = history.slice(-24).map((t) => ({ role: t.role, content: t.text.slice(0, 6000) }));
   if (messages.length === 0 || messages[messages.length - 1].role !== "user") return { error: "Ask a question first." };
 
@@ -45,6 +47,9 @@ export async function askAssistant(supabase: SupabaseClient, history: ChatTurn[]
   } catch (e) {
     if (e instanceof Anthropic.AuthenticationError) return { error: "The assistant's key was not accepted. Check ANTHROPIC_API_KEY in Vercel." };
     if (e instanceof Anthropic.RateLimitError) return { error: "The assistant is busy right now. Try again in a minute." };
+    if (e instanceof Anthropic.BadRequestError && /workspace/i.test(e.message)) {
+      return { error: "The assistant's key is not tied to a workspace. In the Anthropic console, create a new key inside a workspace and put it in Vercel as ANTHROPIC_API_KEY, or add the workspace ID in Vercel as ANTHROPIC_WORKSPACE_ID. Then redeploy." };
+    }
     if (e instanceof Anthropic.BadRequestError) return { error: `The assistant could not take that request: ${e.message}` };
     if (e instanceof Anthropic.APIConnectionError) return { error: "The assistant could not be reached. Try again." };
     if (e instanceof Anthropic.APIError) return { error: `The assistant had a problem (${e.status ?? "unknown"}). Try again.` };
