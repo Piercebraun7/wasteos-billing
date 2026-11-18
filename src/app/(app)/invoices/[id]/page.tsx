@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Card, Eyebrow, Notice, dangerButton, inputClass, secondaryButton } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
-import { creditInvoice, removeDraftLine, voidInvoice } from "../actions";
+import { creditInvoice, removeDraftLine, saveDraftDetails, saveDraftLine, voidInvoice } from "../actions";
 import { AddLine } from "./add-line";
 import { postOne } from "../../quickbooks/actions";
 import { sendReminder } from "../../send/actions";
@@ -63,7 +63,7 @@ export default async function InvoicePage({
       })
     : null;
   const canVoid = ["approved", "sent"].includes(invoice.status) && credited === 0 && paid === 0;
-  const lines = [...(invoice.lines as { id: string; description: string; amount_cents: number; sort_order: number; period_start: string | null }[])].sort((a, b) => a.sort_order - b.sort_order);
+  const lines = [...(invoice.lines as { id: string; description: string; amount_cents: number; sort_order: number; period_start: string | null; quantity: number; unit_price_cents: number; line_type: string }[])].sort((a, b) => a.sort_order - b.sort_order);
   const isDraft = invoice.status === "draft";
   // Only needed while the invoice can still be changed.
   const [itemsRes, bulkRes] = isDraft
@@ -76,9 +76,12 @@ export default async function InvoicePage({
 
   return (
     <div className="space-y-5">
-      <Link href={`/accounts/${invoice.account.id}`} className="inline-flex items-center gap-1.5 text-sm font-medium text-mute transition hover:text-ink">
-        <span aria-hidden>&larr;</span> {invoice.account.property.name}
-      </Link>
+      <div className="flex flex-wrap gap-x-5 gap-y-1">
+        <Link href={isDraft ? "/review" : invoice.status === "approved" ? "/send" : "/invoices?view=unpaid"} className="inline-flex items-center gap-1.5 text-sm font-medium text-mute transition hover:text-ink">
+          <span aria-hidden>&larr;</span> {isDraft ? "Back to Review" : invoice.status === "approved" ? "Back to Send" : "Back to Invoices"}
+        </Link>
+        <Link href={`/customers/${invoice.account.id}`} className="text-sm font-medium text-mute transition hover:text-ink">{invoice.account.property.name}&apos;s account</Link>
+      </div>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <Eyebrow>{monthLabel(invoice.service_month)} · {STATUS[invoice.status] ?? invoice.status}</Eyebrow>
@@ -103,7 +106,47 @@ export default async function InvoicePage({
       {invoice.memo && <p className="text-[15px] text-slate-600">{invoice.memo}</p>}
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
-        <Card title="Lines">
+        <Card title={isDraft ? "Edit this draft" : "Lines"}>
+          {isDraft && (
+            <div className="mb-5 space-y-5 border-b border-line pb-5">
+              <form action={saveDraftDetails} className="grid gap-3 sm:grid-cols-2">
+                <input type="hidden" name="invoice_id" value={invoice.id} />
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-ink">Invoice date</span>
+                  <input type="date" name="invoice_date" defaultValue={invoice.invoice_date} required className={inputClass} />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-ink">Due date</span>
+                  <input type="date" name="due_date" defaultValue={invoice.due_date} required className={inputClass} />
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="mb-1 block text-sm font-medium text-ink">Message on the invoice</span>
+                  <textarea name="memo" rows={2} defaultValue={invoice.memo ?? ""} className={`${inputClass} h-auto py-2.5`} />
+                </label>
+                <div className="sm:col-span-2">
+                  <SubmitButton className={secondaryButton}>Save dates and message</SubmitButton>
+                  {invoice.kind === "scheduled" && <p className="mt-2 text-xs text-mute">A monthly invoice is re-dated to the day you approve it, keeping the same number of days until it is due.</p>}
+                </div>
+              </form>
+              <div className="space-y-3">
+                <p className="text-sm font-semibold text-ink">Lines</p>
+                {lines.map((l) => (
+                  <form key={l.id} action={saveDraftLine} className="grid gap-2 rounded-2xl border border-line p-3 sm:grid-cols-[9.5rem_1fr]">
+                    <input type="hidden" name="invoice_id" value={invoice.id} />
+                    <input type="hidden" name="line_id" value={l.id} />
+                    <input type="date" name="line_date" defaultValue={l.period_start ?? ""} aria-label="Date of service" className={inputClass} />
+                    <input name="description" defaultValue={l.description} required aria-label="Description" className={inputClass} />
+                    <div className="grid items-center gap-2 sm:col-span-2 sm:grid-cols-[5rem_7rem_1fr_auto]">
+                      <input name="quantity" defaultValue={String(Number(l.quantity))} inputMode="decimal" aria-label="Quantity" className={`${inputClass} text-right tabular-nums`} />
+                      <input name="rate" defaultValue={(Number(l.unit_price_cents) / 100).toFixed(2)} inputMode="decimal" aria-label="Rate in dollars" className={`${inputClass} text-right tabular-nums`} />
+                      <p className="px-1 text-sm text-mute">Now {formatCents(Number(l.amount_cents))}</p>
+                      <SubmitButton className={secondaryButton}>Save line</SubmitButton>
+                    </div>
+                  </form>
+                ))}
+              </div>
+            </div>
+          )}
           <ul className="divide-y divide-line text-[15px]">
             {lines.map((l) => (
               <li key={l.id} className="flex items-center justify-between gap-4 py-2.5">
@@ -155,7 +198,7 @@ export default async function InvoicePage({
           {isDraft && (
             <div className="mt-6 space-y-3 border-t border-line pt-5">
               <p className="text-sm font-semibold text-ink">Add a line</p>
-              <p className="text-sm text-mute">For extras on this invoice, such as a replacement can. Type to find a product or add a new one. To change an existing line&apos;s wording or amount, use Review.</p>
+              <p className="text-sm text-mute">For extras on this invoice, such as a replacement can. Type to find a product or add a new one.</p>
               <AddLine invoiceId={invoice.id} items={(itemsRes?.data ?? []) as { id: string; name: string; category: string; description: string | null; default_rate_cents: number | null }[]} defaultDate={invoice.invoice_date} bulkRate={bulkRate === null ? null : Number(bulkRate)} />
             </div>
           )}

@@ -8,7 +8,7 @@ import { formatDate } from "@/lib/format";
 import { formatCents } from "@/lib/money";
 import { isServiceCategory, SERVICE_ORDER, SERVICES, type ServiceCategory } from "@/lib/services";
 import { InvoiceTabs } from "@/components/section-tabs";
-import { sendAll, sendOne } from "./actions";
+import { holdFromSend, sendAll, sendOne } from "./actions";
 
 type Invoice = { id: string; account_id: string; invoice_number: number; total_cents: number; due_date: string; service_month: string; kind: string; service_category: string | null };
 type Account = { id: string; property: { name: string }; customer: { name: string }; contacts: { name: string; email: string; is_active: boolean; delivery: string }[] };
@@ -18,16 +18,20 @@ export default async function SendPage({ searchParams }: { searchParams: Promise
   const { supabase, name } = await requireAdmin();
   const { saved, error, service } = await searchParams;
   const view: ServiceCategory | "all" = isServiceCategory(service) ? service : "all";
-  const [invoicesRes, accountsRes, defaultsRes, logRes, settings, overviewRes] = await Promise.all([
+  const [invoicesRes, accountsRes, defaultsRes, logRes, settings, overviewRes, holdsRes] = await Promise.all([
     supabase.from("invoices").select("id, account_id, invoice_number, total_cents, due_date, service_month, kind, service_category").eq("status", "approved").order("invoice_number"),
     supabase.from("billing_accounts").select("id, property:properties(name), customer:customers(name), contacts:billing_contacts(name, email, is_active, delivery)"),
     supabase.from("account_send_defaults").select("*"),
     supabase.from("email_sends").select("*").order("sent_at", { ascending: false }).limit(60),
     supabase.from("app_settings").select("email_sender, email_reply_to, copy_address, always_cc").maybeSingle(),
     supabase.from("account_overview").select("account_id, balance_cents"),
+    supabase.from("send_holds").select("invoice_id"),
   ]);
+  const heldIds = new Set((holdsRes.data ?? []).map((h) => h.invoice_id as string));
   const balances = new Map((overviewRes.data ?? []).map((o) => [o.account_id as string, Number(o.balance_cents)]));
-  const waiting = (invoicesRes.data ?? []) as Invoice[];
+  const approvedAll = (invoicesRes.data ?? []) as Invoice[];
+  const waiting = approvedAll.filter((i) => !heldIds.has(i.id));
+  const heldBack = approvedAll.filter((i) => heldIds.has(i.id));
   const categoryOf = (i: Invoice): ServiceCategory => (isServiceCategory(i.service_category) ? i.service_category : "other");
   const invoices = waiting.filter((i) => view === "all" || categoryOf(i) === view);
   const accounts = new Map(((accountsRes.data ?? []) as unknown as Account[]).map((a) => [a.id, a]));
@@ -91,6 +95,33 @@ export default async function SendPage({ searchParams }: { searchParams: Promise
 
       {groups.length === 0 && <Empty>Nothing is waiting to be sent. Approved invoices appear here.</Empty>}
 
+      {heldBack.length > 0 && (
+        <section className="rounded-3xl border border-amber-200 bg-amber-50/60 p-5 sm:p-6">
+          <h2 className="text-lg font-semibold tracking-tight text-ink">{heldBack.length} held back from sending</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            These are approved and count toward what the customer owes, but will not be emailed until you put them back. To cancel one completely, open it and void it.
+          </p>
+          <ul className="mt-3 divide-y divide-amber-200/70">
+            {heldBack.map((i) => (
+              <li key={i.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
+                <Link href={`/invoices/${i.id}`} className="text-[15px] text-ink hover:underline">
+                  <span className="font-medium">Invoice {i.invoice_number}</span>
+                  <span className="text-mute"> · {accounts.get(i.account_id)?.property.name ?? ""} · {formatCents(Number(i.total_cents))} · due {formatDate(i.due_date)}</span>
+                </Link>
+                <span className="flex gap-2">
+                  <form action={holdFromSend}>
+                    <input type="hidden" name="invoice_id" value={i.id} />
+                    <input type="hidden" name="release" value="yes" />
+                    <SubmitButton className="h-9 rounded-full border border-line bg-white px-4 text-sm font-medium text-ink hover:bg-slate-50">Put back in send</SubmitButton>
+                  </form>
+                  <Link href={`/invoices/${i.id}`} className="inline-flex h-9 items-center rounded-full px-3 text-sm font-medium text-red-600 hover:bg-red-50">Open to void</Link>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {groups.map(({ account, invoices: list }) => {
         const contacts = account.contacts.filter((c) => c.is_active);
         const last = defaults.get(account.id);
@@ -113,11 +144,15 @@ export default async function SendPage({ searchParams }: { searchParams: Promise
             </div>
             <ul className="mt-3 flex flex-wrap gap-2">
               {list.map((i) => (
-                <li key={i.id}>
-                  <Link href={`/invoices/${i.id}`} className="inline-flex items-center gap-2 rounded-full border border-line px-3 py-1.5 text-sm text-ink transition hover:bg-slate-50">
+                <li key={i.id} className="inline-flex items-center rounded-full border border-line text-sm">
+                  <Link href={`/invoices/${i.id}`} className="inline-flex items-center gap-2 rounded-l-full py-1.5 pl-3 pr-2 text-ink transition hover:bg-slate-50">
                     <span className="font-medium">Invoice {i.invoice_number}</span>
                     <span className="tabular-nums text-mute">{formatCents(Number(i.total_cents))} · due {formatDate(i.due_date)}</span>
                   </Link>
+                  <form action={holdFromSend}>
+                    <input type="hidden" name="invoice_id" value={i.id} />
+                    <SubmitButton className="rounded-r-full border-l border-line py-1.5 pl-2 pr-3 font-medium text-red-600 transition hover:bg-red-50">Remove from send</SubmitButton>
+                  </form>
                 </li>
               ))}
             </ul>

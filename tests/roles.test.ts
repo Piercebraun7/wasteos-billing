@@ -33,7 +33,7 @@ const ALL_TABLES = [
   "contract_phases", "contract_event_rates", "invoices", "billable_events", "invoice_lines",
   "payments", "payment_applications", "credit_memos", "adjustments", "disputes",
   "ledger_entries", "rebate_accruals", "email_sends", "qbo_sync_log",
-  "source_discrepancies", "app_settings", "audit_log", "service_items", "recurring_invoices", "rate_increases", "invoice_templates", "qbo_connection", "late_fee_waivers",
+  "source_discrepancies", "app_settings", "audit_log", "service_items", "recurring_invoices", "rate_increases", "invoice_templates", "qbo_connection", "late_fee_waivers", "send_holds",
 ];
 // What a customer contact may read (their own rows only).
 const CUSTOMER_TABLES = [
@@ -121,6 +121,7 @@ async function seedCustomer(key: "A" | "B", userId: string) {
   await db.query("insert into public.rate_increases (contract_id, effective_month, percent_bps, status) select id, '2027-01-01', 300, 'confirmed' from public.contracts where account_id = $1", [r.account]);
   await db.query("insert into public.qbo_connection (realm_id, access_token, refresh_token, access_expires_at, refresh_expires_at) values ('1', 'a', 'r', now(), now()) on conflict do nothing");
   await db.query("insert into public.late_fee_waivers (invoice_id, period) values ($1, 1) on conflict do nothing", [r.sent]);
+  await db.query("insert into public.send_holds (invoice_id) values ($1) on conflict do nothing", [r.sent]);
   // Admin-only extras, so "sees zero rows" is a real test and not an empty table.
   await db.query("insert into public.account_send_defaults (account_id, recipient_emails) values ($1, $2)", [r.account, [`ap-${key}@example.com`]]);
   await db.query("insert into public.billable_events (account_id, event_date, event_type) values ($1, '2026-10-05', 'bulk_pickup')", [r.account]);

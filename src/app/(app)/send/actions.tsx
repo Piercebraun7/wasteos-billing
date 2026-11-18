@@ -49,7 +49,9 @@ async function sendForAccount(
   ]);
   if (account.error) return account.error.message;
   const propertyName = (account.data.property as unknown as { name: string }).name;
-  const invoices = invoicesRes.data ?? [];
+  // Anything held back from sending is left out.
+  const held = new Set(((await supabase.from("send_holds").select("invoice_id")).data ?? []).map((h) => h.invoice_id as string));
+  const invoices = (invoicesRes.data ?? []).filter((i) => !held.has(i.id));
   if (invoices.length === 0) return null;
 
   const contacts = ((account.data.contacts ?? []) as { email: string; is_active: boolean; delivery: string }[])
@@ -293,4 +295,23 @@ export async function dismissOverdueNotice(fd: FormData) {
     : { error: null };
   revalidatePath("/", "layout");
   redirect(`/invoices?view=unpaid&${error ? "error" : "saved"}=${encodeURIComponent(error ? error.message : "No notice will be sent for those invoices.")}`);
+}
+
+/** Holds an approved invoice back from sending, or puts it back. It stays approved and on the account either way. */
+export async function holdFromSend(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const id = String(fd.get("invoice_id") ?? "");
+  const release = fd.get("release") === "yes";
+  const { data: invoice } = await supabase.from("invoices").select("invoice_number, status").eq("id", id).maybeSingle();
+  const done = (kind: "saved" | "error", message: string): never => {
+    revalidatePath("/", "layout");
+    redirect(`/send?${kind}=${encodeURIComponent(message)}`);
+  };
+  if (!invoice) done("error", "Invoice not found.");
+  if (invoice!.status !== "approved") done("error", "Only an approved invoice that has not been sent can be held or put back.");
+  const { error } = release
+    ? await supabase.from("send_holds").delete().eq("invoice_id", id)
+    : await supabase.from("send_holds").upsert({ invoice_id: id }, { onConflict: "invoice_id" });
+  if (error) done("error", error.message);
+  done("saved", release ? `Invoice ${invoice!.invoice_number} is back in the send.` : `Invoice ${invoice!.invoice_number} is held back. It is still approved and on the account, and will not be emailed until you put it back.`);
 }
