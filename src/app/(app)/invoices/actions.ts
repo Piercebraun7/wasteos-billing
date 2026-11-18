@@ -261,3 +261,69 @@ export async function creditInvoice(fd: FormData) {
   if (error) toInvoice(id, "error", error.message);
   toInvoice(id, "saved", "Credit applied. It has come off this invoice and the balance.");
 }
+
+/** Adds one line to a draft, for an extra such as a replacement can. Posted invoices cannot be changed. */
+export async function addDraftLine(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const id = text(fd, "invoice_id");
+  const { data: invoice } = await supabase.from("invoices").select("id, status, invoice_date, total_cents").eq("id", id).maybeSingle();
+  if (!invoice) toInvoice(id, "error", "Invoice not found.");
+  if (invoice!.status !== "draft") toInvoice(id, "error", "Only a draft can be changed. Use a credit, or void and reissue.");
+
+  const itemId = text(fd, "line_item");
+  const newName = text(fd, "line_item_new");
+  const description = text(fd, "description");
+  const quantity = text(fd, "quantity") || "1";
+  const rate = parseSignedDollarsToCents(text(fd, "rate"));
+  const serviceDate = text(fd, "line_date") || (invoice!.invoice_date as string);
+  if (!DATE.test(serviceDate)) toInvoice(id, "error", "The date of service does not look right.");
+  let item = itemId ? (await supabase.from("service_items").select("id, name").eq("id", itemId).maybeSingle()).data : null;
+  const label = description || item?.name || newName;
+  if (!label) toInvoice(id, "error", "Choose a product or service, or type a description.");
+  if (rate === null) toInvoice(id, "error", `Enter a rate for "${label}", for example 25.00.`);
+  const amount = lineAmountCents(quantity, rate!);
+  if (amount === null || Number(quantity) <= 0) toInvoice(id, "error", "The quantity must be a number above zero, with at most two decimals.");
+  if (Number(invoice!.total_cents) + amount! < 0) toInvoice(id, "error", "That would make the invoice total negative. Use a credit memo to give money back.");
+
+  // A product typed in fresh is added to the list, unless one by that name is already there.
+  if (!item && newName) {
+    const existing = await supabase.from("service_items").select("id, name").ilike("name", newName).limit(1);
+    item = existing.data?.[0] ?? null;
+    if (!item) {
+      const category = text(fd, "line_item_new_category");
+      const made = await supabase.from("service_items").insert({ name: newName, category: isServiceCategory(category) ? category : "other", default_rate_cents: rate }).select("id, name").single();
+      if (made.error) toInvoice(id, "error", `"${newName}" could not be added to products and services: ${made.error.message}`);
+      item = made.data;
+      revalidatePath("/items");
+    }
+  }
+  const last = await supabase.from("invoice_lines").select("sort_order").eq("invoice_id", id).order("sort_order", { ascending: false }).limit(1);
+  const { error } = await supabase.from("invoice_lines").insert({
+    invoice_id: id, line_type: amount! < 0 ? "adjustment" : "per_event", description: label, quantity, unit_price_cents: rate, amount_cents: amount,
+    service_item_id: item?.id ?? null, period_start: serviceDate, period_end: serviceDate, sort_order: Number(last.data?.[0]?.sort_order ?? -1) + 1,
+  });
+  if (error) toInvoice(id, "error", error.message);
+  const recalc = await supabase.rpc("recalculate_draft", { p_invoice_id: id });
+  if (recalc.error) toInvoice(id, "error", recalc.error.message);
+  toInvoice(id, "saved", `Added "${label}". The total is updated.`);
+}
+
+/** Takes one line off a draft. */
+export async function removeDraftLine(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const id = text(fd, "invoice_id");
+  const lineId = text(fd, "line_id");
+  const [{ data: lines }, { data: invoice }] = await Promise.all([
+    supabase.from("invoice_lines").select("id, amount_cents").eq("invoice_id", id),
+    supabase.from("invoices").select("status").eq("id", id).maybeSingle(),
+  ]);
+  if (invoice?.status !== "draft") toInvoice(id, "error", "Only a draft can be changed.");
+  const rest = (lines ?? []).filter((l) => l.id !== lineId);
+  if (rest.length === 0) toInvoice(id, "error", "This is the only line. To drop the whole invoice, reject the draft in Review.");
+  if (rest.reduce((sum, l) => sum + Number(l.amount_cents), 0) < 0) toInvoice(id, "error", "Removing that line would make the total negative.");
+  const { error } = await supabase.from("invoice_lines").delete().eq("id", lineId).eq("invoice_id", id);
+  if (error) toInvoice(id, "error", error.message);
+  const recalc = await supabase.rpc("recalculate_draft", { p_invoice_id: id });
+  if (recalc.error) toInvoice(id, "error", recalc.error.message);
+  toInvoice(id, "saved", "Line removed. The total is updated.");
+}

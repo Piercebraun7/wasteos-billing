@@ -33,7 +33,7 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
   const { saved, error: errorMessage, service } = await searchParams;
   const view: ServiceCategory | "all" = isServiceCategory(service) ? service : "all";
 
-  const [draftsRes, postedRes, settings, discrepancies] = await Promise.all([
+  const [draftsRes, postedRes, settings, discrepancies, active] = await Promise.all([
     supabase
       .from("invoices")
       .select("*, lines:invoice_lines!invoice_lines_invoice_id_fkey(*), account:billing_accounts(property:properties(id, name), customer:customers(name), contacts:billing_contacts(id))")
@@ -42,7 +42,9 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
     supabase.from("invoices").select("id, account_id, late_fee_for, invoice_number, status, invoice_date, service_month, total_cents, origin, kind, service_category, lines:invoice_lines!invoice_lines_invoice_id_fkey(*)").in("status", ["approved", "sent", "partially_paid", "paid"]),
     supabase.from("app_settings").select("next_invoice_number").maybeSingle(),
     supabase.from("source_discrepancies").select("property_id").is("resolved_at", null),
+    supabase.from("billing_accounts").select("id, property:properties(name)").eq("status", "active"),
   ]);
+  const properties = ((active.data ?? []) as unknown as { id: string; property: { name: string } }[]).map((a) => ({ id: a.id, name: a.property.name })).sort((a, b) => a.name.localeCompare(b.name));
   const allDrafts = ((draftsRes.data ?? []) as unknown as Draft[]).sort((a, b) => a.account.property.name.localeCompare(b.account.property.name));
   const categoryOf = (d: Draft): ServiceCategory => (isServiceCategory(d.service_category) ? d.service_category : "other");
   const drafts = allDrafts.filter((d) => view === "all" || categoryOf(d) === view);
@@ -99,6 +101,21 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
         </p>
         <input type="month" name="month" defaultValue={defaultMonth} aria-label="Service month" className={`${inputClass} max-w-48`} />
         <SubmitButton className={primaryButton}>Draft the month</SubmitButton>
+        <details className="w-full">
+          <summary className="cursor-pointer pt-2 text-sm font-medium text-ink underline underline-offset-4">Or draft only some properties</summary>
+          <div className="mt-3 grid gap-x-6 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-3">
+            {properties.map((p) => (
+              <label key={p.id} className="flex items-center gap-2 text-[15px] text-slate-700">
+                <input type="checkbox" name="account" value={p.id} className="size-4" />
+                <span className="truncate">{p.name}</span>
+              </label>
+            ))}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button type="submit" name="intent" value="selected" className={secondaryButton}>Draft the ticked properties</button>
+            <span className="text-sm text-mute">Drafts their monthly invoice for the month above. Anything already drafted or invoiced for that month is left alone.</span>
+          </div>
+        </details>
       </form>
 
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
@@ -233,7 +250,10 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line p-4 sm:px-7">
-              <Link href={`/invoices/${d.id}/pdf`} target="_blank" className={secondaryButton}>Preview PDF</Link>
+              <div className="flex flex-wrap gap-2">
+                <Link href={`/invoices/${d.id}`} className={secondaryButton}>Open to edit or add lines</Link>
+                <Link href={`/invoices/${d.id}/pdf`} target="_blank" className={secondaryButton}>Preview PDF</Link>
+              </div>
               <div className="flex gap-2">
                 <form action={rejectDraft}>
                   <input type="hidden" name="invoice_id" value={d.id} />

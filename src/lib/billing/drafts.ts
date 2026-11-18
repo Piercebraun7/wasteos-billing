@@ -58,7 +58,7 @@ function ownerOf(event: BillableEvent, contracts: ContractRow[]): ContractRow | 
  * service that is switched on. Nothing is posted or sent: drafts wait in the
  * review queue. A month with nothing owed (a free month) gets no invoice.
  */
-export async function generateDrafts(supabase: SupabaseClient, serviceMonth: ISODate): Promise<DraftRun> {
+export async function generateDrafts(supabase: SupabaseClient, serviceMonth: ISODate, only?: string[]): Promise<DraftRun> {
   const first = monthStart(serviceMonth);
   const last = monthEnd(serviceMonth);
   const run: DraftRun = { created: [], skipped: [] };
@@ -77,18 +77,21 @@ export async function generateDrafts(supabase: SupabaseClient, serviceMonth: ISO
   if (events.error) throw new Error(events.error.message);
 
   // Per-job work (bulk pickups and the like) first: one draft per property per day of work.
-  const loggedWork = await draftLoggedWork(supabase);
+  // When only some properties are chosen, just their monthly invoices are drafted; per-job work and recurring invoices are left for a full run.
+  const loggedWork = only ? { created: [], skipped: [], skippedAccounts: [] as string[] } : await draftLoggedWork(supabase);
   run.created.push(...loggedWork.created);
   run.skipped.push(...loggedWork.skipped);
   const loggedWorkHandled = new Set(loggedWork.skippedAccounts);
 
   // Recurring invoices: one draft each for this month, dated on its chosen day.
-  const recurring = await draftRecurring(supabase, first);
-  run.created.push(...recurring.created);
-  run.skipped.push(...recurring.skipped);
+  if (!only) {
+    const recurring = await draftRecurring(supabase, first);
+    run.created.push(...recurring.created);
+    run.skipped.push(...recurring.skipped);
+  }
 
   const alreadyInvoiced = new Set((existing.data ?? []).map((r) => `${r.account_id}:${r.service_category ?? ""}`));
-  const rows = (accounts.data ?? []) as unknown as AccountRow[];
+  const rows = ((accounts.data ?? []) as unknown as AccountRow[]).filter((a) => !only || only.includes(a.id));
 
   // Anything already on a live invoice is never billed a second time.
   const eventIds = (events.data ?? []).map((e) => e.id as string);

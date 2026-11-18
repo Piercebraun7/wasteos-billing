@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Card, Eyebrow, Notice, dangerButton, inputClass, secondaryButton } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
-import { creditInvoice, voidInvoice } from "../actions";
+import { creditInvoice, removeDraftLine, voidInvoice } from "../actions";
+import { AddLine } from "./add-line";
 import { postOne } from "../../quickbooks/actions";
 import { sendReminder } from "../../send/actions";
 import { requireAdmin } from "@/lib/auth";
@@ -62,7 +63,16 @@ export default async function InvoicePage({
       })
     : null;
   const canVoid = ["approved", "sent"].includes(invoice.status) && credited === 0 && paid === 0;
-  const lines = [...(invoice.lines as { id: string; description: string; amount_cents: number; sort_order: number }[])].sort((a, b) => a.sort_order - b.sort_order);
+  const lines = [...(invoice.lines as { id: string; description: string; amount_cents: number; sort_order: number; period_start: string | null }[])].sort((a, b) => a.sort_order - b.sort_order);
+  const isDraft = invoice.status === "draft";
+  // Only needed while the invoice can still be changed.
+  const [itemsRes, bulkRes] = isDraft
+    ? await Promise.all([
+        supabase.from("service_items").select("id, name, category, description, default_rate_cents").eq("is_active", true).order("sort_order"),
+        supabase.from("contracts").select("event_rates:contract_event_rates(event_type, rate_cents)").eq("account_id", invoice.account.id).eq("service_category", "bulk"),
+      ])
+    : [null, null];
+  const bulkRate = ((bulkRes?.data ?? []) as unknown as { event_rates: { event_type: string; rate_cents: number }[] }[]).flatMap((c) => c.event_rates).find((r) => r.event_type === "bulk_pickup")?.rate_cents ?? null;
 
   return (
     <div className="space-y-5">
@@ -96,9 +106,18 @@ export default async function InvoicePage({
         <Card title="Lines">
           <ul className="divide-y divide-line text-[15px]">
             {lines.map((l) => (
-              <li key={l.id} className="flex justify-between gap-4 py-2.5">
+              <li key={l.id} className="flex items-center justify-between gap-4 py-2.5">
                 <span className="text-slate-700">{l.description}</span>
-                <span className="font-medium tabular-nums text-ink">{formatCents(Number(l.amount_cents))}</span>
+                <span className="flex items-center gap-3">
+                  <span className="font-medium tabular-nums text-ink">{formatCents(Number(l.amount_cents))}</span>
+                  {isDraft && lines.length > 1 && (
+                    <form action={removeDraftLine}>
+                      <input type="hidden" name="invoice_id" value={invoice.id} />
+                      <input type="hidden" name="line_id" value={l.id} />
+                      <SubmitButton className="rounded-full px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50">Remove</SubmitButton>
+                    </form>
+                  )}
+                </span>
               </li>
             ))}
             <li className="flex justify-between gap-4 py-3 font-semibold text-ink">
@@ -133,6 +152,13 @@ export default async function InvoicePage({
           <div className="mt-2 text-sm text-mute">
             {invoice.qbo_invoice_id ? "In QuickBooks." : invoice.invoice_number ? "Not in QuickBooks yet." : ""}
           </div>
+          {isDraft && (
+            <div className="mt-6 space-y-3 border-t border-line pt-5">
+              <p className="text-sm font-semibold text-ink">Add a line</p>
+              <p className="text-sm text-mute">For extras on this invoice, such as a replacement can. Type to find a product or add a new one. To change an existing line&apos;s wording or amount, use Review.</p>
+              <AddLine invoiceId={invoice.id} items={(itemsRes?.data ?? []) as { id: string; name: string; category: string; description: string | null; default_rate_cents: number | null }[]} defaultDate={invoice.invoice_date} bulkRate={bulkRate === null ? null : Number(bulkRate)} />
+            </div>
+          )}
           {reminder && (
             <div className="mt-6 space-y-3 border-t border-line pt-5">
               <p className="text-sm font-semibold text-ink">Send a reminder</p>

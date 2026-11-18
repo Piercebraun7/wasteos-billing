@@ -32,9 +32,12 @@ export async function generateDraftsAction(fd: FormData) {
   const { supabase } = await requireAdmin();
   const month = text(fd, "month"); // "2026-11"
   if (!/^\d{4}-\d{2}$/.test(month)) back("error", "Choose a service month.");
+  // "Draft selected" drafts only the ticked properties; "Draft the month" drafts everything on the schedule.
+  const chosen = text(fd, "intent") === "selected" ? fd.getAll("account").map(String).filter((id) => /^[0-9a-f-]{36}$/i.test(id)) : undefined;
+  if (chosen && chosen.length === 0) back("error", "Tick at least one property to draft.");
   let run;
   try {
-    run = await generateDrafts(supabase, `${month}-01`);
+    run = await generateDrafts(supabase, `${month}-01`, chosen);
   } catch (e) {
     back("error", e instanceof Error ? e.message : "Could not generate drafts.");
   }

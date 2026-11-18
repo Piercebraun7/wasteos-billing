@@ -10,8 +10,8 @@ import { SERVICE_ORDER, SERVICES, type ServiceCategory } from "@/lib/services";
 import { createInvoice } from "../actions";
 
 type Account = { account_id: string; property_name: string; customer_name: string; balance_cents: number };
-type Item = { id: string; name: string; category: string; description: string | null; default_rate_cents: number | null };
-type Line = { key: number; item: string; itemText: string; newCategory: string; date: string; description: string; quantity: string; rate: string };
+export type Item = { id: string; name: string; category: string; description: string | null; default_rate_cents: number | null };
+export type Line = { key: number; item: string; itemText: string; newCategory: string; date: string; description: string; quantity: string; rate: string };
 
 let nextKey = 1;
 const blank = (date = ""): Line => ({ key: nextKey++, item: "", itemText: "", newCategory: "other", date, description: "", quantity: "1", rate: "" });
@@ -312,7 +312,7 @@ export function InvoiceForm({
  * Type to find a product or service. Matches narrow as you type. If nothing
  * matches, what you typed can be added as a new one, saved with the invoice.
  */
-function ItemPicker({
+export function ItemPicker({
   items, line, label, onChoose, onType, onCategory,
 }: {
   items: Item[]; line: Line; label: string;
