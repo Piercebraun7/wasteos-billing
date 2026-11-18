@@ -1,4 +1,6 @@
 import { describeTwin, lookAlikes, possibleDuplicates } from "@/lib/billing/duplicates";
+import { resolveOptions, type BlockKey } from "@/lib/pdf/template";
+import { DraftPreview } from "./draft-preview";
 import Link from "next/link";
 import { SubmitButton } from "@/components/submit-button";
 import { dangerButton, Empty, Eyebrow, inputClass, Notice, PageHeader, primaryButton, secondaryButton } from "@/components/ui";
@@ -22,9 +24,10 @@ type Draft = {
   service_category: string | null;
   recurring_invoice_id: string | null;
   late_fee_for: string | null;
+  layout_options: Partial<Record<BlockKey, boolean>> | null;
   memo: string | null;
   lines: Line[];
-  account: { property: { id: string; name: string }; customer: { name: string }; contacts: { id: string }[] };
+  account: { invoice_template_id: string | null; property: { id: string; name: string }; customer: { name: string }; contacts: { id: string }[] };
 };
 type Posted = { id: string; account_id: string; late_fee_for: string | null; invoice_number: number | null; status: string; invoice_date: string; service_month: string; total_cents: number; origin: string; kind: string; service_category: string | null; lines: Line[] };
 
@@ -33,17 +36,20 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
   const { saved, error: errorMessage, service } = await searchParams;
   const view: ServiceCategory | "all" = isServiceCategory(service) ? service : "all";
 
-  const [draftsRes, postedRes, settings, discrepancies, active] = await Promise.all([
+  const [draftsRes, postedRes, settings, discrepancies, active, templatesRes] = await Promise.all([
     supabase
       .from("invoices")
-      .select("*, lines:invoice_lines!invoice_lines_invoice_id_fkey(*), account:billing_accounts(property:properties(id, name), customer:customers(name), contacts:billing_contacts(id))")
+      .select("*, lines:invoice_lines!invoice_lines_invoice_id_fkey(*), account:billing_accounts(invoice_template_id, property:properties(id, name), customer:customers(name), contacts:billing_contacts(id))")
       .eq("status", "draft")
       .order("created_at"),
     supabase.from("invoices").select("id, account_id, late_fee_for, invoice_number, status, invoice_date, service_month, total_cents, origin, kind, service_category, lines:invoice_lines!invoice_lines_invoice_id_fkey(*)").in("status", ["approved", "sent", "partially_paid", "paid"]),
     supabase.from("app_settings").select("next_invoice_number").maybeSingle(),
     supabase.from("source_discrepancies").select("property_id").is("resolved_at", null),
     supabase.from("billing_accounts").select("id, property:properties(name)").eq("status", "active"),
+    supabase.from("invoice_templates").select("id, is_default, options"),
   ]);
+  const templateRows = (templatesRes.data ?? []) as { id: string; is_default: boolean; options: unknown }[];
+  const templateFor = (templateId: string | null) => resolveOptions((templateRows.find((t) => t.id === templateId) ?? templateRows.find((t) => t.is_default))?.options);
   const properties = ((active.data ?? []) as unknown as { id: string; property: { name: string } }[]).map((a) => ({ id: a.id, name: a.property.name })).sort((a, b) => a.name.localeCompare(b.name));
   const allDrafts = ((draftsRes.data ?? []) as unknown as Draft[]).sort((a, b) => a.account.property.name.localeCompare(b.account.property.name));
   const categoryOf = (d: Draft): ServiceCategory => (isServiceCategory(d.service_category) ? d.service_category : "other");
@@ -200,6 +206,13 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
                   <Link href={`/accounts/${d.account_id}`} className="hover:underline">{d.account.property.name}</Link>
                 </h2>
                 <p className="text-sm text-mute">{d.account.customer.name}</p>
+                {previous && (
+                  <p className="mt-1 text-sm text-slate-600">
+                    Last invoice: {previous.invoice_number ? `No. ${previous.invoice_number}` : "invoice"}, {monthLabel(previous.service_month)}, {formatCents(Number(previous.total_cents))}
+                    {previous.origin === "quickbooks_import" ? " (from QuickBooks)" : ""}
+                    {Number(previous.total_cents) === Number(d.total_cents) ? <span className="text-emerald-700"> · same amount</span> : <span className="font-medium text-amber-700"> · {Number(d.total_cents) > Number(previous.total_cents) ? "up" : "down"} {formatCents(Math.abs(Number(d.total_cents) - Number(previous.total_cents)))}</span>}
+                  </p>
+                )}
                 {flags.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {flags.map((f) => (
@@ -211,60 +224,50 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
               <p className="text-3xl font-semibold tabular-nums tracking-tight text-ink">{formatCents(Number(d.total_cents))}</p>
             </div>
 
-            <div className="grid gap-px bg-line lg:grid-cols-2">
-              <div className="bg-white p-5 sm:p-7">
-                <Eyebrow>This draft</Eyebrow>
-                <div className="mt-3 space-y-2">
-                  {lines.map((l) => (
-                    <form key={l.id} action={updateDraftLine} className={`grid gap-2 ${l.line_type === "per_event" ? "sm:grid-cols-[1fr_4.5rem_6.5rem_auto]" : "sm:grid-cols-[1fr_7.5rem_auto]"}`}>
+            <div className="p-5 sm:p-7">
+              <div className="hidden grid-cols-[minmax(0,1fr)_5rem_7rem_7rem_auto] gap-3 pb-2 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-mute md:grid">
+                <span>Service</span><span className="text-right">Qty</span><span className="text-right">Rate</span><span className="text-right">Amount</span><span className="w-16" />
+              </div>
+              <div className="divide-y divide-line">
+                {lines.map((l) => {
+                  // A line whose quantity times rate equals its amount is changed by quantity and rate. A prorated or flat line is changed by its amount.
+                  const priced = Number(l.quantity) > 0 && Math.round(Number(l.quantity) * Number(l.unit_price_cents)) === Number(l.amount_cents);
+                  return (
+                    <form key={l.id} action={updateDraftLine} className="grid items-start gap-3 py-3 md:grid-cols-[minmax(0,1fr)_5rem_7rem_7rem_auto]">
                       <input type="hidden" name="invoice_id" value={d.id} />
                       <input type="hidden" name="line_id" value={l.id} />
                       <input type="hidden" name="return_service" value={view} />
-                      <input name="description" defaultValue={l.description} aria-label="Line description" className={inputClass} />
-                      {l.line_type === "per_event" ? (
+                      <textarea name="description" defaultValue={l.description} rows={Math.min(4, Math.max(1, Math.ceil(l.description.length / 70)))} aria-label="Service description" className={`${inputClass} h-auto resize-y py-2.5 leading-snug`} />
+                      {priced ? (
                         <>
-                          <input name="quantity" inputMode="decimal" defaultValue={Number(l.quantity)} aria-label="Quantity" title="Quantity" className={`${inputClass} text-right tabular-nums`} />
-                          <input name="rate" inputMode="decimal" defaultValue={centsToInput(Number(l.unit_price_cents))} aria-label="Rate in dollars" title="Rate" className={`${inputClass} text-right tabular-nums`} />
+                          <input name="quantity" inputMode="decimal" defaultValue={Number(l.quantity)} aria-label="Quantity" className={`${inputClass} text-right tabular-nums`} />
+                          <input name="rate" inputMode="decimal" defaultValue={centsToInput(Number(l.unit_price_cents))} aria-label="Rate in dollars" className={`${inputClass} text-right tabular-nums`} />
+                          <p className="flex h-11 items-center justify-end text-[15px] font-semibold tabular-nums text-ink">{formatCents(Number(l.amount_cents))}</p>
                         </>
                       ) : (
-                        <input name="amount" inputMode="decimal" defaultValue={centsToInput(Number(l.amount_cents))} aria-label="Line amount in dollars" className={`${inputClass} text-right tabular-nums`} />
+                        <>
+                          <p className="flex h-11 items-center justify-end text-[15px] tabular-nums text-mute">{Number(l.quantity)}</p>
+                          <p className="flex h-11 items-center justify-end text-[15px] tabular-nums text-mute">{formatCents(Number(l.unit_price_cents))}</p>
+                          <input name="amount" inputMode="decimal" defaultValue={centsToInput(Number(l.amount_cents))} aria-label="Line amount in dollars" className={`${inputClass} text-right tabular-nums`} />
+                        </>
                       )}
                       <SubmitButton className={secondaryButton}>Save</SubmitButton>
                     </form>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
-              <div className="bg-slate-50/60 p-5 sm:p-7">
-                <Eyebrow>Previous invoice</Eyebrow>
-                {previous ? (
-                  <div className="mt-3 text-[15px]">
-                    <p className="font-medium text-ink">
-                      {previous.invoice_number ? `No. ${previous.invoice_number}` : "Invoice"} · {monthLabel(previous.service_month)}
-                      {previous.origin === "quickbooks_import" && " · from QuickBooks"}
-                    </p>
-                    <ul className="mt-2 space-y-1.5 text-slate-600">
-                      {[...previous.lines].sort((a, b) => a.sort_order - b.sort_order).map((l) => (
-                        <li key={l.id} className="flex justify-between gap-4">
-                          <span>{l.description}</span>
-                          <span className="tabular-nums">{formatCents(Number(l.amount_cents))}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    <p className="mt-3 flex justify-between border-t border-line pt-3 font-semibold text-ink">
-                      <span>Total</span>
-                      <span className="tabular-nums">{formatCents(Number(previous.total_cents))}</span>
-                    </p>
-                  </div>
-                ) : (
-                  <p className="mt-3 text-sm text-mute">{oneOff ? (d.memo ?? (d.recurring_invoice_id ? "Made from a recurring invoice. Change the quantity here if this month was different." : "A one-off invoice, so there is nothing to compare it with.")) : "None in this app yet. QuickBooks history will appear here once it is imported."}</p>
-                )}
-              </div>
+              <p className="flex items-center justify-end gap-4 border-t border-line pt-3">
+                <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-mute">Invoice total</span>
+                <span className="text-xl font-semibold tabular-nums text-ink">{formatCents(Number(d.total_cents))}</span>
+              </p>
+              {d.memo && <p className="mt-2 text-sm text-mute">Message on the invoice: {d.memo}</p>}
             </div>
+
+            <DraftPreview key={`${d.id}-${JSON.stringify(d.layout_options ?? {})}`} invoiceId={d.id} template={templateFor(d.account.invoice_template_id)} saved={d.layout_options ?? {}} scheduled={!oneOff} />
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line p-4 sm:px-7">
               <div className="flex flex-wrap gap-2">
                 <Link href={`/invoices/${d.id}`} className={secondaryButton}>Open to edit or add lines</Link>
-                <Link href={`/invoices/${d.id}/pdf`} target="_blank" className={secondaryButton}>Preview PDF</Link>
               </div>
               <div className="flex gap-2">
                 <form action={rejectDraft}>

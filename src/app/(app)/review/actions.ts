@@ -1,5 +1,6 @@
 "use server";
 
+import { BLOCKS } from "@/lib/pdf/template";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
@@ -153,4 +154,14 @@ export async function updateDraftLine(fd: FormData) {
   const recalc = await supabase.rpc("recalculate_draft", { p_invoice_id: invoiceId });
   if (recalc.error) backTo(home, "error", recalc.error.message);
   backTo(home, "saved", "Line updated.");
+}
+
+/** Saves which invoice blocks are switched on or off for one draft. Empty means it follows its template. */
+export async function saveDraftLayout(invoiceId: string, choices: Record<string, unknown>): Promise<{ error: string } | undefined> {
+  const { supabase } = await requireAdmin();
+  const chosen = Object.fromEntries(BLOCKS.filter((b) => typeof choices?.[b.key] === "boolean").map((b) => [b.key, choices[b.key] as boolean]));
+  const { data, error } = await supabase.from("invoices").update({ layout_options: Object.keys(chosen).length ? chosen : null }).eq("id", invoiceId).eq("status", "draft").select("id");
+  if (error) return { error: error.message };
+  if (!data?.length) return { error: "Only a draft can be changed." };
+  revalidatePath("/review");
 }
