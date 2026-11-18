@@ -14,14 +14,15 @@ type Inv = { id: string; account_id: string; invoice_number: number; status: str
  */
 export async function draftLateFees(supabase: SupabaseClient, today: string): Promise<{ created: number; problems: string[] }> {
   const result = { created: 0, problems: [] as string[] };
-  const [invoices, applications, credits, feeLines, accounts] = await Promise.all([
+  const [invoices, applications, credits, feeLines, accounts, waivers] = await Promise.all([
     supabase.from("invoices").select("id, account_id, invoice_number, status, due_date, total_cents, late_fee_for, late_fee_period"),
     supabase.from("payment_applications").select("invoice_id, amount_cents"),
     supabase.from("credit_memos").select("invoice_id, amount_cents"),
     supabase.from("invoice_lines").select("invoice_id").eq("line_type", "late_fee"),
     supabase.from("billing_accounts").select("id, contracts(status, created_at, late_fee_template:late_fee_templates(*))").eq("status", "active"),
+    supabase.from("late_fee_waivers").select("invoice_id, period"),
   ]);
-  const failed = invoices.error ?? applications.error ?? credits.error ?? feeLines.error ?? accounts.error;
+  const failed = invoices.error ?? applications.error ?? credits.error ?? feeLines.error ?? accounts.error ?? waivers.error;
   if (failed) return { created: 0, problems: [failed.message] };
 
   const all = (invoices.data ?? []) as Inv[];
@@ -45,9 +46,10 @@ export async function draftLateFees(supabase: SupabaseClient, today: string): Pr
     const terms = termsFor.get(inv.account_id);
     const open = openOf(inv);
     if (!terms || open <= 0) continue;
-    // Every fee ever made for this invoice counts as a period used, including one that was removed, so a removed fee never comes back.
+    // Every fee ever made for this invoice counts as a period used, including one that was removed or rejected, so a waived fee never comes back.
     const mine = all.filter((f) => f.late_fee_for === inv.id);
-    const alreadyCharged = Math.max(feeLinesOn.get(inv.id) ?? 0, ...mine.map((f) => f.late_fee_period ?? 0));
+    const waived = (waivers.data ?? []).filter((w) => w.invoice_id === inv.id).map((w) => Number(w.period));
+    const alreadyCharged = Math.max(feeLinesOn.get(inv.id) ?? 0, ...mine.map((f) => f.late_fee_period ?? 0), ...waived);
     const unpaidFeesCents = mine.filter((f) => f.status !== "void").reduce((s, f) => s + (f.status === "draft" ? Number(f.total_cents) : openOf(f)), 0);
     const due = feesToDraft({ dueDate: inv.due_date, openCents: open, alreadyCharged, unpaidFeesCents }, terms, today);
 
@@ -81,6 +83,7 @@ export async function draftLateFees(supabase: SupabaseClient, today: string): Pr
       const tagged = await supabase.from("invoices").update({ late_fee_for: inv.id, late_fee_period: fee.period }).eq("id", data as string);
       if (tagged.error) {
         // Someone else drafted this period a moment ago. Remove ours so there is only ever one.
+        // The new draft is not tagged as a fee yet, so removing it records no waiver.
         await supabase.rpc("reject_draft", { p_invoice_id: data as string });
         if (tagged.error.code !== "23505") result.problems.push(`Invoice ${inv.invoice_number}: ${tagged.error.message}`);
         break;

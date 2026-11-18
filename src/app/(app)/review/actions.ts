@@ -100,6 +100,25 @@ export async function approveAll(fd: FormData) {
   back(problems.length || duplicates ? "error" : "saved", `${approved} invoice${approved === 1 ? "" : "s"} approved.${held}${problems.length ? ` ${problems[0]}` : ""}`);
 }
 
+/** Removes every draft in the queue being looked at: one service, or all of them. Nothing approved is touched. */
+export async function rejectAll(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const service = text(fd, "service");
+  const home = isServiceCategory(service) ? `/review?service=${service}` : "/review";
+  let query = supabase.from("invoices").select("id").eq("status", "draft");
+  if (isServiceCategory(service)) query = query.eq("service_category", service);
+  const { data, error } = await query;
+  if (error) backTo(home, "error", error.message);
+  let removed = 0;
+  for (const row of data ?? []) {
+    const gone = await supabase.rpc("reject_draft", { p_invoice_id: row.id });
+    if (gone.error) backTo(home, "error", `${removed} draft${removed === 1 ? "" : "s"} removed, then this stopped: ${gone.error.message}`);
+    removed++;
+  }
+  revalidatePath("/", "layout");
+  backTo(home, "saved", `${removed} draft${removed === 1 ? "" : "s"} removed. Nothing approved or sent was touched, and they can be drafted again.`);
+}
+
 export async function rejectDraft(fd: FormData) {
   const { supabase } = await requireAdmin();
   const home = queueOf(fd);

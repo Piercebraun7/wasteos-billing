@@ -557,3 +557,24 @@ describe("late fee invoices", () => {
     });
   });
 });
+
+describe("waiving a late fee", () => {
+  it("records the waiver when a late fee draft is rejected, and not for an ordinary draft", async () => {
+    await as(db, admin, async () => {
+      await db.query("update public.app_settings set next_invoice_number = coalesce(next_invoice_number, 2000) where singleton");
+      const base = (await one<{ id: string }>("select public.create_draft_invoice($1) as id", [draft("2028-03-01", 300000)])).id;
+      await db.query("select public.approve_invoice($1)", [base]);
+      const make = async (date: string) => (await one<{ id: string }>("select public.create_draft_invoice($1) as id", [JSON.stringify({
+        account_id: account, service_month: "2028-04-01", invoice_date: date, due_date: date, subtotal_cents: 9000, tax_cents: 0, total_cents: 9000, kind: "ad_hoc", service_category: "other",
+        lines: [{ line_type: "late_fee", description: "Late fee", quantity: 1, unit_price_cents: 9000, amount_cents: 9000 }],
+      })])).id;
+      const fee = await make("2028-04-06");
+      await db.query("update public.invoices set late_fee_for = $1, late_fee_period = 1 where id = $2", [base, fee]);
+      await db.query("select public.reject_draft($1)", [fee]);
+      expect((await db.query("select period from public.late_fee_waivers where invoice_id = $1", [base])).rows).toEqual([{ period: 1 }]);
+      const plain = await make("2028-04-07");
+      await db.query("select public.reject_draft($1)", [plain]);
+      expect((await db.query("select 1 from public.late_fee_waivers where invoice_id = $1", [base])).rows.length).toBe(1);
+    });
+  });
+});

@@ -8,7 +8,7 @@ import { formatDate } from "@/lib/format";
 import { centsToInput, formatCents } from "@/lib/money";
 import { isServiceCategory, SERVICE_ORDER, SERVICES, type ServiceCategory } from "@/lib/services";
 import { InvoiceTabs } from "@/components/section-tabs";
-import { approveAll, approveInvoice, generateDraftsAction, rejectDraft, updateDraftLine } from "./actions";
+import { rejectAll, approveAll, approveInvoice, generateDraftsAction, rejectDraft, updateDraftLine } from "./actions";
 
 type Line = { id: string; description: string; amount_cents: number; quantity: number; unit_price_cents: number; sort_order: number; contract_phase_id: string | null; line_type: string };
 type Draft = {
@@ -139,6 +139,18 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
         </div>
         <div className="flex items-center gap-4">
           <Eyebrow>{formatCents(total)}</Eyebrow>
+          {drafts.length > 0 && (
+            <details className="relative">
+              <summary className={`${dangerButton} cursor-pointer list-none`}>Remove all</summary>
+              <form action={rejectAll} className="absolute right-0 top-full z-20 mt-2 w-80 rounded-2xl border border-line bg-white p-4 shadow-xl">
+                <input type="hidden" name="service" value={view} />
+                <p className="text-sm text-slate-700">
+                  Remove {drafts.length === 1 ? "this draft" : `all ${drafts.length} ${view === "all" ? "" : `${SERVICES[view].short.toLowerCase()} `}drafts`}? Nothing approved or sent is touched, and monthly drafts can be made again. A late fee removed this way is waived.
+                </p>
+                <SubmitButton className={`${dangerButton} mt-3 border border-red-200`}>Yes, remove {drafts.length === 1 ? "it" : `all ${drafts.length}`}</SubmitButton>
+              </form>
+            </details>
+          )}
           {drafts.length > 1 && (
             <form action={approveAll}>
               <input type="hidden" name="service" value={view} />
