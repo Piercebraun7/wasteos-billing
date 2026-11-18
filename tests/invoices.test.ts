@@ -578,3 +578,19 @@ describe("waiving a late fee", () => {
     });
   });
 });
+
+describe("holding an invoice back from sending", () => {
+  it("lets a billing admin add and remove a hold, and refuses anyone else", async () => {
+    await as(db, admin, async () => {
+      await db.query("update public.app_settings set next_invoice_number = coalesce(next_invoice_number, 2000) where singleton");
+      const id = (await one<{ id: string }>("select public.create_draft_invoice($1) as id", [draft("2028-06-01", 300000)])).id;
+      await db.query("select public.approve_invoice($1)", [id]);
+      await db.query("insert into public.send_holds (invoice_id) values ($1)", [id]);
+      await db.query("insert into public.send_holds (invoice_id) values ($1) on conflict (invoice_id) do update set created_at = now()", [id]);
+      expect((await db.query("select 1 from public.send_holds where invoice_id = $1", [id])).rows.length).toBe(1);
+      await db.query("delete from public.send_holds where invoice_id = $1", [id]);
+      expect((await db.query("select 1 from public.send_holds where invoice_id = $1", [id])).rows.length).toBe(0);
+    });
+    await expect(as(db, stranger, () => db.query("insert into public.send_holds (invoice_id) values (gen_random_uuid())"))).rejects.toThrow();
+  });
+});

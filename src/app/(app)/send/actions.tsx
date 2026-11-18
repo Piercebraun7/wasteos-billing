@@ -311,7 +311,8 @@ export async function holdFromSend(fd: FormData) {
   if (invoice!.status !== "approved") done("error", "Only an approved invoice that has not been sent can be held or put back.");
   const { error } = release
     ? await supabase.from("send_holds").delete().eq("invoice_id", id)
-    : await supabase.from("send_holds").upsert({ invoice_id: id }, { onConflict: "invoice_id" });
-  if (error) done("error", error.message);
+    : await supabase.from("send_holds").insert({ invoice_id: id });
+  // Already held is not a problem: the result the person wants is the same.
+  if (error && error.code !== "23505") done("error", error.message);
   done("saved", release ? `Invoice ${invoice!.invoice_number} is back in the send.` : `Invoice ${invoice!.invoice_number} is held back. It is still approved and on the account, and will not be emailed until you put it back.`);
 }
