@@ -316,3 +316,32 @@ export async function holdFromSend(fd: FormData) {
   if (error && error.code !== "23505") done("error", error.message);
   done("saved", release ? `Invoice ${invoice!.invoice_number} is back in the send.` : `Invoice ${invoice!.invoice_number} is held back. It is still approved and on the account, and will not be emailed until you put it back.`);
 }
+
+/** Sends an approved, unsent invoice back to Review: the approved one is voided and an identical draft takes its place. */
+export async function backToReview(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const id = String(fd.get("invoice_id") ?? "");
+  const { data: invoice } = await supabase.from("invoices").select("invoice_number, qbo_invoice_id").eq("id", id).maybeSingle();
+  const { data, error } = await supabase.rpc("return_to_review", { p_invoice_id: id });
+  revalidatePath("/", "layout");
+  if (error) redirect(`/send?error=${encodeURIComponent(error.message)}`);
+  const qbo = invoice?.qbo_invoice_id ? ` Invoice ${invoice.invoice_number} is still in QuickBooks: void it there too, so the books match.` : "";
+  redirect(`/invoices/${data as string}?saved=${encodeURIComponent(`Back in Review as a draft you can change. Invoice ${invoice?.invoice_number ?? ""} was voided to make room, so the new one will get the next number when approved.${qbo}`)}`);
+}
+
+/** Voids an approved invoice straight from the Send page. */
+export async function voidFromSend(fd: FormData) {
+  const { supabase } = await requireAdmin();
+  const id = String(fd.get("invoice_id") ?? "");
+  const reason = String(fd.get("reason") ?? "").trim();
+  const back = (kind: "saved" | "error", message: string): never => {
+    revalidatePath("/", "layout");
+    redirect(`/send?${kind}=${encodeURIComponent(message)}`);
+  };
+  if (!reason) back("error", "Enter the reason for voiding the invoice.");
+  const { data: invoice } = await supabase.from("invoices").select("invoice_number, qbo_invoice_id").eq("id", id).maybeSingle();
+  const { error } = await supabase.rpc("void_invoice", { p_invoice_id: id, p_reason: reason });
+  if (error) back("error", error.message);
+  await supabase.from("send_holds").delete().eq("invoice_id", id);
+  back("saved", `Invoice ${invoice?.invoice_number ?? ""} voided. Its amount is off the balance and it will not be sent.${invoice?.qbo_invoice_id ? " It is still in QuickBooks: void it there too, so the books match." : ""}`);
+}

@@ -594,3 +594,39 @@ describe("holding an invoice back from sending", () => {
     await expect(as(db, stranger, () => db.query("insert into public.send_holds (invoice_id) values (gen_random_uuid())"))).rejects.toThrow();
   });
 });
+
+describe("sending an approved invoice back to review", () => {
+  it("voids the approved one, takes it off the balance, and leaves an identical draft", async () => {
+    await as(db, admin, async () => {
+      await db.query("update public.app_settings set next_invoice_number = coalesce(next_invoice_number, 2000) where singleton");
+      const before = await balance();
+      const id = (await one<{ id: string }>("select public.create_draft_invoice($1) as id", [draft("2028-08-01", 300000)])).id;
+      await db.query("select public.approve_invoice($1)", [id]);
+      expect(await balance()).toBe(before + 300000);
+      const fresh = (await one<{ id: string }>("select public.return_to_review($1) as id", [id])).id;
+      expect(await balance()).toBe(before);
+      const old = await one<{ status: string; n: number }>("select status, invoice_number as n from public.invoices where id = $1", [id]);
+      expect(old.status).toBe("void");
+      expect(old.n).toBeTruthy();
+      const copy = await one<{ status: string; n: number | null; total_cents: number; service_month: string }>("select status, invoice_number as n, total_cents, service_month::text from public.invoices where id = $1", [fresh]);
+      expect(copy).toMatchObject({ status: "draft", n: null, service_month: "2028-08-01" });
+      expect(Number(copy.total_cents)).toBe(300000);
+      expect(Number((await one<{ n: number }>("select count(*)::int as n from public.invoice_lines where invoice_id = $1", [fresh])).n)).toBe(1);
+      // The copy can be approved again, with a new number.
+      const again = Number((await one<{ n: number }>("select public.approve_invoice($1) as n", [fresh])).n);
+      expect(again).toBeGreaterThan(Number(old.n));
+    });
+  });
+  it("refuses an invoice that has already been sent, and anyone who is not a billing admin", async () => {
+    await as(db, admin, async () => {
+      await db.query("update public.app_settings set next_invoice_number = coalesce(next_invoice_number, 2000) where singleton");
+      const id = (await one<{ id: string }>("select public.create_draft_invoice($1) as id", [draft("2028-09-01", 300000)])).id;
+      await db.query("select public.approve_invoice($1)", [id]);
+      await db.query("update public.invoices set status = 'sent' where id = $1", [id]);
+      await db.exec("savepoint s");
+      await expect(db.query("select public.return_to_review($1)", [id])).rejects.toThrow(/has not been sent/);
+      await db.exec("rollback to savepoint s");
+    });
+    await expect(as(db, stranger, () => db.query("select public.return_to_review(gen_random_uuid())"))).rejects.toThrow(/Only a billing admin/);
+  });
+});

@@ -8,7 +8,7 @@ import { formatDate } from "@/lib/format";
 import { formatCents } from "@/lib/money";
 import { isServiceCategory, SERVICE_ORDER, SERVICES, type ServiceCategory } from "@/lib/services";
 import { InvoiceTabs } from "@/components/section-tabs";
-import { holdFromSend, sendAll, sendOne } from "./actions";
+import { backToReview, holdFromSend, sendAll, sendOne, voidFromSend } from "./actions";
 
 type Invoice = { id: string; account_id: string; invoice_number: number; total_cents: number; due_date: string; service_month: string; kind: string; service_category: string | null };
 type Account = { id: string; property: { name: string }; customer: { name: string }; contacts: { name: string; email: string; is_active: boolean; delivery: string }[] };
@@ -99,7 +99,7 @@ export default async function SendPage({ searchParams }: { searchParams: Promise
         <section className="rounded-3xl border border-amber-200 bg-amber-50/60 p-5 sm:p-6">
           <h2 className="text-lg font-semibold tracking-tight text-ink">{heldBack.length} held back from sending</h2>
           <p className="mt-1 text-sm text-slate-600">
-            These are approved and count toward what the customer owes, but will not be emailed until you put them back. To cancel one completely, open it and void it.
+            These are approved and count toward what the customer owes, but will not be emailed until you put them back.
           </p>
           <ul className="mt-3 divide-y divide-amber-200/70">
             {heldBack.map((i) => (
@@ -108,14 +108,7 @@ export default async function SendPage({ searchParams }: { searchParams: Promise
                   <span className="font-medium">Invoice {i.invoice_number}</span>
                   <span className="text-mute"> · {accounts.get(i.account_id)?.property.name ?? ""} · {formatCents(Number(i.total_cents))} · due {formatDate(i.due_date)}</span>
                 </Link>
-                <span className="flex gap-2">
-                  <form action={holdFromSend}>
-                    <input type="hidden" name="invoice_id" value={i.id} />
-                    <input type="hidden" name="release" value="yes" />
-                    <SubmitButton className="h-9 rounded-full border border-line bg-white px-4 text-sm font-medium text-ink hover:bg-slate-50">Put back in send</SubmitButton>
-                  </form>
-                  <Link href={`/invoices/${i.id}`} className="inline-flex h-9 items-center rounded-full px-3 text-sm font-medium text-red-600 hover:bg-red-50">Open to void</Link>
-                </span>
+                <InvoiceActions id={i.id} number={i.invoice_number} held />
               </li>
             ))}
           </ul>
@@ -142,17 +135,14 @@ export default async function SendPage({ searchParams }: { searchParams: Promise
               </div>
               <p className="font-display text-3xl font-extrabold tabular-nums text-ink">{formatCents(total)}</p>
             </div>
-            <ul className="mt-3 flex flex-wrap gap-2">
+            <ul className="mt-3 divide-y divide-line rounded-2xl border border-line">
               {list.map((i) => (
-                <li key={i.id} className="inline-flex items-center rounded-full border border-line text-sm">
-                  <Link href={`/invoices/${i.id}`} className="inline-flex items-center gap-2 rounded-l-full py-1.5 pl-3 pr-2 text-ink transition hover:bg-slate-50">
+                <li key={i.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-2.5">
+                  <Link href={`/invoices/${i.id}`} className="text-[15px] text-ink hover:underline">
                     <span className="font-medium">Invoice {i.invoice_number}</span>
-                    <span className="tabular-nums text-mute">{formatCents(Number(i.total_cents))} · due {formatDate(i.due_date)}</span>
+                    <span className="tabular-nums text-mute"> · {formatCents(Number(i.total_cents))} · due {formatDate(i.due_date)}</span>
                   </Link>
-                  <form action={holdFromSend}>
-                    <input type="hidden" name="invoice_id" value={i.id} />
-                    <SubmitButton className="rounded-r-full border-l border-line py-1.5 pl-2 pr-3 font-medium text-red-600 transition hover:bg-red-50">Remove from send</SubmitButton>
-                  </form>
+                  <InvoiceActions id={i.id} number={i.invoice_number} />
                 </li>
               ))}
             </ul>
@@ -231,5 +221,32 @@ export default async function SendPage({ searchParams }: { searchParams: Promise
         )}
       </Card>
     </div>
+  );
+}
+
+/** What can be done with one approved invoice before it is sent. */
+function InvoiceActions({ id, number, held = false }: { id: string; number: number | null; held?: boolean }) {
+  const small = "h-9 rounded-full border border-line bg-white px-3.5 text-sm font-medium text-ink transition hover:bg-slate-50";
+  return (
+    <span className="flex flex-wrap items-center gap-2">
+      <form action={backToReview}>
+        <input type="hidden" name="invoice_id" value={id} />
+        <SubmitButton className={small}>Send back to Review</SubmitButton>
+      </form>
+      <form action={holdFromSend}>
+        <input type="hidden" name="invoice_id" value={id} />
+        {held && <input type="hidden" name="release" value="yes" />}
+        <SubmitButton className={small}>{held ? "Put back in send" : "Hold"}</SubmitButton>
+      </form>
+      <details className="relative">
+        <summary className="flex h-9 cursor-pointer list-none items-center rounded-full px-3.5 text-sm font-medium text-red-600 transition hover:bg-red-50">Void</summary>
+        <form action={voidFromSend} className="absolute right-0 top-full z-20 mt-2 w-80 rounded-2xl border border-line bg-white p-4 shadow-xl">
+          <input type="hidden" name="invoice_id" value={id} />
+          <p className="text-sm text-slate-700">Void invoice {number}? It comes off what the customer owes and will not be sent. Its number stays on file.</p>
+          <input name="reason" required placeholder="Reason (required)" aria-label="Reason for voiding" className={`${inputClass} mt-3`} />
+          <SubmitButton className="mt-3 h-10 rounded-full border border-red-200 px-4 text-sm font-medium text-red-600 hover:bg-red-50">Yes, void it</SubmitButton>
+        </form>
+      </details>
+    </span>
   );
 }
