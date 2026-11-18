@@ -1,7 +1,7 @@
 /**
  * Finds invoices that look like the same bill made twice.
  *
- * A duplicate: same property, same invoice date, same total. It does not
+ * A duplicate: same property, same invoice date, same service month, same total. It does not
  * matter where either came from, including QuickBooks. Only one of them may
  * ever be approved, so only one can be sent.
  *
@@ -33,7 +33,8 @@ function grouped(rows: DupeRow[], keyOf: (r: DupeRow) => string | null): Map<str
   return out;
 }
 
-const dayKey = (r: DupeRow) => `${r.account_id}|${r.invoice_date}|${Number(r.total_cents)}|${r.late_fee_for ?? ""}`;
+// The service month is part of the match, so two back-billed months at the same price, drafted on the same day, are two bills and not a duplicate.
+const dayKey = (r: DupeRow) => `${r.account_id}|${r.invoice_date}|${r.service_month}|${Number(r.total_cents)}|${r.late_fee_for ?? ""}`;
 
 /** Same property, same invoice date, same total. */
 export function possibleDuplicates(rows: DupeRow[]): Map<string, DupeRow[]> {

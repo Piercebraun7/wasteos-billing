@@ -26,6 +26,12 @@ describe("duplicates", () => {
   });
 });
 
+describe("back-billing", () => {
+  it("treats two different service months at the same price, drafted the same day, as two bills", () => {
+    expect(possibleDuplicates([row("1", { service_month: "2026-09-01" }), row("2", { service_month: "2026-10-01" })]).size).toBe(0);
+  });
+});
+
 describe("late fees", () => {
   it("never treats two late fees for two different invoices as duplicates, even on the same day for the same amount", () => {
     expect(possibleDuplicates([row("1", { late_fee_for: "x", total_cents: 1050 }), row("2", { late_fee_for: "y", total_cents: 1050 })]).size).toBe(0);

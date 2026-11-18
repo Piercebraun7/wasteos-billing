@@ -23,7 +23,7 @@ const sections: Section[] = [
   ] },
   { heading: "Who can see it", body: [
     "Authorized Kaizen staff can see all billing records. A customer contact who is given access can see only the accounts of their own properties.",
-    "We use a small number of service providers to run the App, each acting on our instructions: Supabase (database and sign-in), Vercel (hosting), Resend (sending email), and Intuit (QuickBooks Online). We may also disclose information when the law requires it, or as part of a sale or reorganization of the business.",
+    "We use a small number of service providers to run the App, each acting on our instructions: Supabase (database and sign-in), Vercel (hosting), Resend (sending email), Intuit (QuickBooks Online), and Anthropic (the built-in assistant that Kaizen staff use to look up billing records; the records needed to answer a question are sent to it for that purpose only, and are not used to train its models). We may also disclose information when the law requires it, or as part of a sale or reorganization of the business.",
   ] },
   { heading: "How it is protected", body: [
     "Access requires signing in, and each person sees only what their role allows. Information is encrypted in transit and at rest by our hosting and database providers. Financial entries and the activity log are kept so that they cannot be edited after the fact. No system is perfectly secure, and we cannot guarantee absolute security, but we will notify affected parties of a breach as the law requires.",

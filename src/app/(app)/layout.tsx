@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { Assistant } from "@/components/assistant";
 import { Nav } from "@/components/nav";
 import { Wordmark } from "@/components/ui";
+import { assistantIsConnected } from "@/lib/assistant/run";
 import { requireAdmin } from "@/lib/auth";
 import { signOut } from "../login/actions";
 
@@ -58,6 +60,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <main className="min-w-0 flex-1 lg:pl-64">
         <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-8 sm:py-12">{children}</div>
       </main>
+      <Assistant connected={assistantIsConnected()} />
     </div>
   );
 }
